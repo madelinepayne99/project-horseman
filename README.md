@@ -33,3 +33,4 @@ Conquest no longer depends on a social network to function. The current build me
 ## Deployment
 
 This repository is ready for Vercel Git deployment. Keep `ALPHA_VANTAGE_API_KEY` in Vercel Environment Variables; do not commit the real key to GitHub. The `/api/analyse.js` file is the live analysis endpoint and `index.html` is the full Horseman interface.
+
