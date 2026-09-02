@@ -1,108 +1,89 @@
-/**
- * Provisional-bar detection.
- *
- * A daily OHLCV bar dated *today* is still being built while the exchange
- * is open: its close will move and — the reason this module exists — its
- * volume is only the volume accumulated so far. Comparing a part-day
- * volume against a trailing average of *full* days produces a number that
- * is arithmetically correct and analytically meaningless.
- *
- * Observed in production on 2026-09-02: AAPL's latest bar reported
- * 973,020 shares against a 20-day average of 40.6M — i.e. "-97.6% vs
- * average" — purely because the request happened at 14:33 America/New_York,
- * roughly 1.5 hours before the close. A second provider (Yahoo, via
- * api/analyse.js) reported 0.55x for the same instant, because providers
- * accumulate intraday volume at different rates. Neither figure described
- * a real collapse in participation.
- *
- * This module answers only one question — "is the latest bar still
- * forming?" — and makes no decision about what to do about it. The
- * consequences live in deriveTechnicalFacts.js (suppress the volume
- * comparison) and buildWarInput.js (surface the flag), keeping detection
- * separately testable from policy.
- */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { isProvisionalBar, wallClockAt } from "../src/utils/marketSession.js";
 
-// Regular US equity session close. Twelve Data's daily bars are regular-session
-// bars, so post-market prints are not what makes a bar provisional here.
-const SESSION_CLOSE_HOUR = 16; // 16:00 in the exchange's own timezone
+const NY = { exchange_timezone: "America/New_York" };
 
-// Grace period after the close before a bar is treated as final. The closing
-// auction and the provider's own aggregation both take a few minutes to
-// settle, so a bar read at 16:01 may still be incomplete.
-const POST_CLOSE_SETTLE_MINUTES = 20;
+// 2026-09-02 is a Wednesday. 18:33 UTC == 14:33 America/New_York (EDT),
+// which is the exact real-world case that motivated this module.
+const MIDSESSION_UTC = new Date("2026-09-02T18:33:00Z");
 
-// This phase is gated to US equities (see supportedScope.js), so this is a
-// safe fallback when the provider omits exchange_timezone rather than a
-// guess about an arbitrary venue.
-const DEFAULT_EXCHANGE_TIMEZONE = "America/New_York";
+test("wallClockAt() converts UTC to the exchange's local wall clock", () => {
+  const wall = wallClockAt("America/New_York", MIDSESSION_UTC);
+  assert.equal(wall.date, "2026-09-02");
+  assert.equal(wall.hour, 14);
+  assert.equal(wall.minute, 33);
+});
 
-/**
- * Returns the wall-clock date and time at a given IANA timezone.
- * Uses Intl rather than any date library — no dependencies, and Node's
- * full-ICU build (Node 20+ on Vercel, and locally) resolves real zone
- * rules including DST transitions.
- *
- * @returns {{date: string, hour: number, minute: number} | null}
- *   date is "YYYY-MM-DD"; null if the timezone is unusable.
- */
-export function wallClockAt(timeZone, now = new Date()) {
-  try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    }).formatToParts(now);
+test("wallClockAt() returns null for an unusable timezone rather than throwing", () => {
+  assert.equal(wallClockAt("Not/AZone", MIDSESSION_UTC), null);
+});
 
-    const get = type => parts.find(p => p.type === type)?.value;
-    const year = get("year"), month = get("month"), day = get("day");
-    if (!year || !month || !day) return null;
+test("today's bar during the open session IS provisional", () => {
+  assert.equal(isProvisionalBar({ date: "2026-09-02" }, NY, MIDSESSION_UTC), true);
+});
 
-    // Intl can render midnight as "24" in some locales/zones; normalise it.
-    const hour = parseInt(get("hour"), 10) % 24;
-    const minute = parseInt(get("minute"), 10);
-    if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+test("today's bar after the close (plus settle grace) is NOT provisional", () => {
+  // 20:45 UTC == 16:45 New York â€” past the 16:20 settle cutoff.
+  const afterClose = new Date("2026-09-02T20:45:00Z");
+  assert.equal(isProvisionalBar({ date: "2026-09-02" }, NY, afterClose), false);
+});
 
-    return { date: `${year}-${month}-${day}`, hour, minute };
-  } catch {
-    return null; // invalid/unknown timezone
-  }
-}
+test("today's bar inside the post-close settle window is still provisional", () => {
+  // 20:05 UTC == 16:05 New York â€” after the bell but inside the grace period,
+  // where the closing auction and provider aggregation may not have settled.
+  const justAfterBell = new Date("2026-09-02T20:05:00Z");
+  assert.equal(isProvisionalBar({ date: "2026-09-02" }, NY, justAfterBell), true);
+});
 
-/**
- * Is the latest daily bar still forming?
- *
- * True only when the bar is dated today *in the exchange's own timezone*
- * and the session has not yet closed (plus the settle grace period).
- *
- * Deliberately returns false — treating the bar as final — when the answer
- * can't be established (missing bar date, unusable timezone). A wrongly
- * suppressed volume comparison silently removes real information; a
- * wrongly kept one is at least visible and traceable in the debug block.
- *
- * Weekends, holidays, and any pre-open request are handled implicitly: the
- * latest available bar is dated earlier than today, so it isn't provisional.
- *
- * @param {{ date?: string }} latestPoint - the newest normalised OHLCV point
- * @param {object|null} providerMeta - passthrough provider metadata (may carry exchange_timezone)
- * @param {Date} [now] - injectable for testing
- */
-export function isProvisionalBar(latestPoint, providerMeta, now = new Date()) {
-  const barDate = latestPoint?.date;
-  if (!barDate) return false;
+test("a bar dated earlier than today is never provisional", () => {
+  assert.equal(isProvisionalBar({ date: "2026-08-28" }, NY, MIDSESSION_UTC), false);
+});
 
-  const timeZone = providerMeta?.exchange_timezone || DEFAULT_EXCHANGE_TIMEZONE;
-  const wall = wallClockAt(timeZone, now);
-  if (!wall) return false;
+test("a weekend request against Friday's bar is not provisional", () => {
+  // Saturday 2026-09-05; newest available bar is Friday's.
+  const saturday = new Date("2026-09-05T15:00:00Z");
+  assert.equal(isProvisionalBar({ date: "2026-09-04" }, NY, saturday), false);
+});
 
-  if (barDate !== wall.date) return false; // not today's bar -> already final
+test("a pre-open request is not provisional (latest bar is the previous session)", () => {
+  // 12:00 UTC == 08:00 New York, before the open; newest bar is yesterday's.
+  const preOpen = new Date("2026-09-02T12:00:00Z");
+  assert.equal(isProvisionalBar({ date: "2026-09-01" }, NY, preOpen), false);
+});
 
-  const minutesNow = wall.hour * 60 + wall.minute;
-  const minutesFinal = SESSION_CLOSE_HOUR * 60 + POST_CLOSE_SETTLE_MINUTES;
-  return minutesNow < minutesFinal;
-}
+test("timezone is taken from provider metadata, not assumed from the server's clock", () => {
+  // Same instant, but an exchange where it is already past the close.
+  const tokyo = { exchange_timezone: "Asia/Tokyo" };
+  // 2026-09-02T18:33Z is 2026-09-03 03:33 in Tokyo, so a bar dated
+  // 2026-09-02 is not "today" there and cannot be provisional.
+  assert.equal(isProvisionalBar({ date: "2026-09-02" }, tokyo, MIDSESSION_UTC), false);
+});
 
-export const PROVISIONAL_BAR_CONFIG = Object.freeze({
-  SESSION_CLOSE_HOUR,
-  POST_CLOSE_SETTLE_MINUTES,
-  DEFAULT_EXCHANGE_TIMEZONE,
+test("missing exchange_timezone falls back to the US session (this phase is US-equity scoped)", () => {
+  assert.equal(isProvisionalBar({ date: "2026-09-02" }, null, MIDSESSION_UTC), true);
+});
+
+test("a missing bar date is treated as final rather than guessed", () => {
+  assert.equal(isProvisionalBar({}, NY, MIDSESSION_UTC), false);
+  assert.equal(isProvisionalBar(null, NY, MIDSESSION_UTC), false);
+});
+
+test("an unusable timezone is treated as final rather than suppressing real data", () => {
+  assert.equal(isProvisionalBar({ date: "2026-09-02" }, { exchange_timezone: "Not/AZone" }, MIDSESSION_UTC), false);
+});
+
+test("DST is handled by real zone rules, not a fixed UTC offset", () => {
+  // January: New York is EST (UTC-5), so 20:05 UTC == 15:05 â€” still open.
+  const winterOpen = new Date("2026-01-14T20:05:00Z");
+  assert.equal(isProvisionalBar({ date: "2026-01-14" }, NY, winterOpen), true);
+  // Same clock time in July is EDT (UTC-4), so 20:05 UTC == 16:05 â€” past the bell.
+  const summer = new Date("2026-07-15T20:05:00Z");
+  // Inside the settle grace window, so still provisional â€” but for a
+  // different reason than the winter case, which is the point: the offset
+  // itself differs by season.
+  assert.equal(isProvisionalBar({ date: "2026-07-15" }, NY, summer), true);
+  // 20:45 UTC in July == 16:45 EDT, past settle; in January it would be 15:45 and still open.
+  assert.equal(isProvisionalBar({ date: "2026-07-15" }, NY, new Date("2026-07-15T20:45:00Z")), false);
+  assert.equal(isProvisionalBar({ date: "2026-01-14" }, NY, new Date("2026-01-14T20:45:00Z")), true);
 });
