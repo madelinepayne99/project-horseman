@@ -3,18 +3,22 @@ import { assessFreshness, assessCompleteness } from "../utils/dataQuality.js";
 import { isSupportedUsEquity } from "../utils/supportedScope.js";
 
 const MIN_POINTS_FOR_ANY_ANALYSIS = 5;
-const CALCULATION_VERSION = "war-technicals-v1"; // bump when calculation logic changes materially
+// Bump when calculation logic changes materially. Visible in every response's
+// debug block, so a production request confirms which logic is deployed.
+//   v1 -> v2: provisional (still-forming) daily bars no longer produce a
+//             volume-vs-average comparison. See utils/marketSession.js.
+const CALCULATION_VERSION = "war-technicals-v2";
 
 /**
  * PIPELINE LAYER: War input assembler (final stage).
  *
  *   Provider response
  *     -> Normalised OHLCV        (src/schema/ohlcv.js, done by the provider adapter)
- *     -> Derived technical facts (src/technicals/deriveTechnicalFacts.js — pure calc)
- *     -> Data-quality assessment (src/utils/dataQuality.js — freshness/completeness)
- *     -> War input object        (this module — assembly + status decision only)
+ *     -> Derived technical facts (src/technicals/deriveTechnicalFacts.js â€” pure calc)
+ *     -> Data-quality assessment (src/utils/dataQuality.js â€” freshness/completeness)
+ *     -> War input object        (this module â€” assembly + status decision only)
  *
- * No provider-specific field name is read past the normalisation layer —
+ * No provider-specific field name is read past the normalisation layer â€”
  * this module only ever touches `series.points`, `series.source`, and the
  * output of deriveTechnicalFacts(). If Twelve Data is swapped for another
  * provider, nothing below the adapter needs to change.
@@ -31,10 +35,10 @@ const CALCULATION_VERSION = "war-technicals-v1"; // bump when calculation logic 
  *
  * The `debug` block is preserved specifically so an incorrect War result
  * can be traced to its layer: provider (source/providerMeta), calculation
- * (technicalFacts), or data quality (freshness/completeness) — without
+ * (technicalFacts), or data quality (freshness/completeness) â€” without
  * needing to reproduce the original request.
  */
-export function buildWarInput(series) {
+export function buildWarInput(series, { now = new Date() } = {}) {
   const points = series.points;
 
   if (!points || points.length < MIN_POINTS_FOR_ANY_ANALYSIS) {
@@ -57,10 +61,20 @@ export function buildWarInput(series) {
     };
   }
 
-  const technicalFacts = deriveTechnicalFacts(series);
+  const technicalFacts = deriveTechnicalFacts(series, { now });
 
   const freshness = assessFreshness(technicalFacts.latestPoint);
-  const completeness = assessCompleteness({
+
+  // Completeness answers "did we get the data we needed?". A suppressed
+  // volume comparison during an open session is not a data shortfall â€” the
+  // data is exactly as complete as it can be at that moment â€” so it is
+  // excluded from the check rather than counted as missing. Counting it
+  // would mark every intraday request PARTIAL_DATA, which would both
+  // devalue that status (it exists to flag genuine gaps, e.g. no 200DMA
+  // yet) and hide real problems behind an expected daily condition. The
+  // condition is instead reported explicitly via latestBarIsProvisional
+  // and volume.reason.
+  const completenessInputs = {
     ma20: technicalFacts.movingAverages.ma20,
     ma50: technicalFacts.movingAverages.ma50,
     ma200: technicalFacts.movingAverages.ma200,
@@ -68,10 +82,13 @@ export function buildWarInput(series) {
     percentChange1d: technicalFacts.percentChange.oneDay,
     percentChange5d: technicalFacts.percentChange.fiveDay,
     percentChange20d: technicalFacts.percentChange.twentyDay,
-    volumeAverage: technicalFacts.volume.average,
     support: technicalFacts.supportResistance.support,
     resistance: technicalFacts.supportResistance.resistance,
-  });
+  };
+  if (!technicalFacts.latestBarIsProvisional) {
+    completenessInputs.volumeAverage = technicalFacts.volume.average;
+  }
+  const completeness = assessCompleteness(completenessInputs);
 
   let dataStatus = "COMPLETE";
   if (freshness.status === "stale") dataStatus = "STALE_DATA";
@@ -83,6 +100,7 @@ export function buildWarInput(series) {
     dataStatus,
     latestPrice: technicalFacts.latestPrice,
     latestDataTimestamp: freshness.latestDataTimestamp,
+    latestBarIsProvisional: technicalFacts.latestBarIsProvisional,
     freshness,
     completeness,
     trend: technicalFacts.trend,
