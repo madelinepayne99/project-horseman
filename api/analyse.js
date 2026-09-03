@@ -24,16 +24,21 @@ module.exports=async function(req,res){
   const q=cr.indicators?.quote?.[0]||{},closes=(q.close||[]).filter(Number.isFinite),vols=(q.volume||[]).filter(Number.isFinite);if(closes.length<50)return res.status(502).json({error:'Not enough price history returned.'});
   const last=closes.at(-1),s20=sma(closes,20),s50=sma(closes,50),s200=sma(closes,200),r14=rsi(closes),ret20=(last/closes.at(-21)-1)*100,vr=vols.length>21?vols.at(-1)/avg(vols.slice(-21,-1)):null;
   const ch20=pctChanges(closes,20),realizedVol=stdev(ch20),absMoveAvg=avg(ch20.map(Math.abs)),lastMove=closes.length>1?(last/closes.at(-2)-1)*100:0;
-  let ws=0,we=[];for(const [label,v] of [['20-day',s20],['50-day',s50],['200-day',s200]])if(v){ws+=last>v?1:-1;we.push(`Price ${last>v?'above':'below'} ${label} average (${v.toFixed(2)})`)}ws+=ret20>3?1:ret20<-3?-1:0;we.push(`20-session change ${ret20.toFixed(1)}%`);if(r14){ws+=r14>70?-1:r14<30?1:0;we.push(`RSI ${r14.toFixed(1)}`)}if(vr)we.push(`Latest volume ${vr.toFixed(2)}× recent average`);
+  let ws=0,we=[];for(const [label,v] of [['20-day',s20],['50-day',s50],['200-day',s200]])if(v){ws+=last>v?1:-1;we.push(`Price ${last>v?'above':'below'} ${label} average (${v.toFixed(2)})`)}ws+=ret20>3?1:ret20<-3?-1:0;we.push(`20-session change ${ret20.toFixed(1)}%`);if(r14){ws+=r14>70?-1:r14<30?1:0;we.push(`RSI ${r14.toFixed(1)}`)}if(vr)we.push(`Latest volume ${vr.toFixed(2)}Ã— recent average`);
   // --- WAR ENGINE V2 (opt-in via ?warEngine=v2) -------------------------
   // Rebuilds War's FACTS from the validated Twelve Data pipeline while
   // reusing the EXACT scoring rules above, so a side-by-side comparison
   // isolates the data source as the only variable. War's reasoning is
   // deliberately not redesigned here. Default remains v1 until approved.
   // Only War is affected: Conquest still uses Yahoo's volume ratio (vr)
-  // and Death still uses Yahoo's r14/ret20 — both intentionally untouched.
+  // and Death still uses Yahoo's r14/ret20 â€” both intentionally untouched.
   let warMeta=null,warLimits=['Yahoo market data can be delayed.'],warConfidenceOverride=null;
+  // M2: the authoritative technical facts object from the V2 pipeline.
+  // Death consumes THIS (shared facts), never War's evidence strings, so
+  // War interprets and Death cross-examines the same underlying numbers.
+  let warFactsV2=null,warV2Requested=false;
   if(String(req.query?.warEngine||'').trim().toLowerCase()==='v2'){
+    warV2Requested=true;
     try{
       const [{buildWarInput},{getProvider}]=await Promise.all([
         import('../src/technicals/buildWarInput.js'),
@@ -42,6 +47,7 @@ module.exports=async function(req,res){
       const series=await getProvider().getDailySeries(ticker);
       const w=buildWarInput(series);
       if(w.dataStatus==='UNSUPPORTED_SECURITY'||w.dataStatus==='INSUFFICIENT_EVIDENCE')throw new Error(w.dataStatus);
+      warFactsV2=w;
       ws=0;we=[];
       const ma=w.movingAverages||{};
       for(const [label,v] of [['20-day',ma.ma20],['50-day',ma.ma50],['200-day',ma.ma200]])
@@ -51,13 +57,17 @@ module.exports=async function(req,res){
       if(w.rsi14!=null){ws+=w.rsi14>70?-1:w.rsi14<30?1:0;we.push(`RSI ${w.rsi14.toFixed(1)}`)}
       // Volume stays UNSCORED (as in v1) and is omitted entirely when the
       // bar is still forming, per the provisional-bar policy.
-      if(w.volume?.vsAveragePct!=null)we.push(`Latest volume ${(1+w.volume.vsAveragePct/100).toFixed(2)}× recent average`);
+      if(w.volume?.vsAveragePct!=null)we.push(`Latest volume ${(1+w.volume.vsAveragePct/100).toFixed(2)}Ã— recent average`);
       warMeta={engine:'v2',provider:w.source?.provider||null,simulated:w.source?.simulated??null,dataStatus:w.dataStatus,latestDataTimestamp:w.latestDataTimestamp||null,latestBarIsProvisional:w.latestBarIsProvisional??null,candlesUsed:w.dataPointsUsed??null,calculationVersion:w.debug?.calculationVersion||null};
       warLimits=[`Technical evidence from ${w.source?.provider||'provider'} (War engine v2).`];
-      if(w.latestBarIsProvisional)warLimits.push('Latest bar is still forming — volume comparison withheld until the session settles.');
+      if(w.latestBarIsProvisional)warLimits.push('Latest bar is still forming â€” volume comparison withheld until the session settles.');
       if(w.dataStatus!=='COMPLETE')warLimits.push(`Data status: ${w.dataStatus}.`);
     }catch(err){
       // Honest degradation: no silent fallback to the v1/Yahoo numbers.
+      // warFactsV2 stays null, so Death's M2 wiring below treats its
+      // authoritative technical inputs as missing rather than reverting
+      // to the legacy Yahoo values that are still in scope.
+      warFactsV2=null;
       ws=0;we=['Technical data unavailable from the primary provider on this run.'];
       warConfidenceOverride=50;
       warMeta={engine:'v2',provider:'twelvedata',dataStatus:'DATA_UNAVAILABLE',error:String(err&&err.code||err&&err.message||'UNKNOWN')};
@@ -90,24 +100,38 @@ module.exports=async function(req,res){
   const ce=[
     `News attention: ${attentionLabel} (${news24} headline(s) in 24h; ${news72} in 72h)`,
     `Headline mood: ${nt>0?'more positive':nt<0?'more negative':'mixed/neutral'} (${positiveHeads} positive / ${negativeHeads} negative)`,
-    `Trading attention: ${vr!=null?`${vr.toFixed(2)}× normal volume`:'volume comparison unavailable'}`,
+    `Trading attention: ${vr!=null?`${vr.toFixed(2)}Ã— normal volume`:'volume comparison unavailable'}`,
     `Recent volatility: ${realizedVol.toFixed(2)}% daily-move standard deviation`,
     `Crowding risk: ${crowdLabel}`,
-    toneSplit?'Bullish and bearish headlines are both present — crowd opinion is split.':'No strong two-sided headline split detected.'
+    toneSplit?'Bullish and bearish headlines are both present â€” crowd opinion is split.':'No strong two-sided headline split detected.'
   ];
   ev.push(evidence(`Conquest observed ${attentionLabel.toLowerCase()} attention using news recency, trading volume and recent volatility`,'FACT','Horseman crowd-attention model','MEDIUM','NEUTRAL',new Date().toISOString(),'This is a derived attention signal, not proof of investor intent.'));
-  if(vr!=null)ev.push(evidence(`Latest trading volume was ${vr.toFixed(2)}× its recent average`,'FACT','Yahoo Finance chart data','HIGH','NEUTRAL',new Date().toISOString(),'Unusual volume can reflect many causes; Conquest uses it only as an attention signal.'));
-  const war={icon:'⚔️',name:'WAR',label:'PRICE & CHART',simple:'Is the share price looking strong or weak?',direction:dir(ws),confidence:clamp(55+Math.abs(ws)*7,50,90),checked:['1 year price history','20/50/200-day averages','RSI','momentum','volume'],evidence:we,limits:warLimits};
+  if(vr!=null)ev.push(evidence(`Latest trading volume was ${vr.toFixed(2)}Ã— its recent average`,'FACT','Yahoo Finance chart data','HIGH','NEUTRAL',new Date().toISOString(),'Unusual volume can reflect many causes; Conquest uses it only as an attention signal.'));
+  const war={icon:'âš”ï¸',name:'WAR',label:'PRICE & CHART',simple:'Is the share price looking strong or weak?',direction:dir(ws),confidence:clamp(55+Math.abs(ws)*7,50,90),checked:['1 year price history','20/50/200-day averages','RSI','momentum','volume'],evidence:we,limits:warLimits};
   if(warConfidenceOverride!=null)war.confidence=warConfidenceOverride;
   if(warMeta)war.dataSource=warMeta;
-  const famine={icon:'🥀',name:'FAMINE',label:'COMPANY & NEWS',simple:'Are the company numbers and current news helping or hurting it?',direction:dir(fs),confidence:clamp(48+Math.abs(fs)*7+(ovOK?8:0),42,90),checked:['Alpha Vantage fundamentals','earnings history','recent news'],evidence:fe.length?fe:['No fundamental evidence returned.'],limits:fl.length?fl:['Fundamentals are historical evidence, not a forecast.']};
-  const conquest={icon:'👑',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:['Trading activity can reveal attention, but it cannot tell Horseman exactly why people are trading.','News volume is an attention proxy, not a direct survey of investor sentiment.'],signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
-  const dirs=[war.direction,famine.direction,conquest.direction],bull=dirs.filter(x=>x==='BULLISH').length,bear=dirs.filter(x=>x==='BEARISH').length,neutral=3-bull-bear,disagree=bull>0&&bear>0;let risk=0,de=[];if(r14>75){risk++;de.push('RSI is very high')}if(Math.abs(ret20)>15){risk++;de.push('Large recent price move')}if(disagree){risk+=2;de.push('Horsemen directly disagree')}if(!ovOK){risk++;de.push('Structured fundamentals unavailable')}if(crowding>=3){risk+=2;de.push('Conquest detected high crowding risk')}else if(crowding>=1){risk++;de.push('Conquest detected elevated crowding risk')};
-  const death={icon:'☠️',name:'DEATH',label:'DANGER',simple:'What could go wrong, and is waiting safer?',direction:risk>=4?'BEARISH':risk>=2?'NEUTRAL':'BULLISH',confidence:clamp(58+risk*6,55,88),checked:['stretched price','large recent moves','missing data','Horseman disagreement','Conquest crowding signals'],evidence:de.length?de:['No major connected-data risk flag triggered.'],limits:['Unknown events can still occur.']};
+  const famine={icon:'ðŸ¥€',name:'FAMINE',label:'COMPANY & NEWS',simple:'Are the company numbers and current news helping or hurting it?',direction:dir(fs),confidence:clamp(48+Math.abs(fs)*7+(ovOK?8:0),42,90),checked:['Alpha Vantage fundamentals','earnings history','recent news'],evidence:fe.length?fe:['No fundamental evidence returned.'],limits:fl.length?fl:['Fundamentals are historical evidence, not a forecast.']};
+  const conquest={icon:'ðŸ‘‘',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:['Trading activity can reveal attention, but it cannot tell Horseman exactly why people are trading.','News volume is an attention proxy, not a direct survey of investor sentiment.'],signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
+  const dirs=[war.direction,famine.direction,conquest.direction],bull=dirs.filter(x=>x==='BULLISH').length,bear=dirs.filter(x=>x==='BEARISH').length,neutral=3-bull-bear,disagree=bull>0&&bear>0;
+  // --- M2: Death's technical inputs -------------------------------------
+  // V1 (default): unchanged â€” Death reads the legacy Yahoo-derived values.
+  // V2: Death reads the SAME authoritative facts War interpreted, so the
+  // two can never cite different RSI values for the same stock. There is
+  // deliberately no fallback to r14/ret20 here: if the authoritative facts
+  // are missing, they are treated as missing rather than substituted.
+  // Thresholds are NOT recalibrated in this task (>75 / >15 unchanged).
+  let deathRsi=r14,deathRet20=ret20,deathTechMissing=false;
+  if(warV2Requested){
+    deathRsi=warFactsV2&&warFactsV2.rsi14!=null?warFactsV2.rsi14:null;
+    deathRet20=warFactsV2&&warFactsV2.percentChange&&warFactsV2.percentChange.twentyDay!=null?warFactsV2.percentChange.twentyDay:null;
+    deathTechMissing=(deathRsi==null||deathRet20==null);
+  }
+  let risk=0,de=[];if(deathRsi!=null&&deathRsi>75){risk++;de.push('RSI is very high')}if(deathRet20!=null&&Math.abs(deathRet20)>15){risk++;de.push('Large recent price move')}if(deathTechMissing){risk++;de.push('Authoritative technical evidence unavailable')}if(disagree){risk+=2;de.push('Horsemen directly disagree')}if(!ovOK){risk++;de.push('Structured fundamentals unavailable')}if(crowding>=3){risk+=2;de.push('Conquest detected high crowding risk')}else if(crowding>=1){risk++;de.push('Conquest detected elevated crowding risk')};
+  const death={icon:'â˜ ï¸',name:'DEATH',label:'DANGER',simple:'What could go wrong, and is waiting safer?',direction:risk>=4?'BEARISH':risk>=2?'NEUTRAL':'BULLISH',confidence:clamp(58+risk*6,55,88),checked:['stretched price','large recent moves','missing data','Horseman disagreement','Conquest crowding signals'],evidence:de.length?de:['No major connected-data risk flag triggered.'],limits:['Unknown events can still occur.']};
   let councilConfidence=Math.round(avg([war.confidence,famine.confidence,conquest.confidence])-neutral*8-(disagree?20:0)-risk*4);councilConfidence=clamp(councilConfidence,25,92);
   let verdict='WATCH';if(bear>=2)verdict='REJECT';else if(!disagree&&bull===3&&risk<3)verdict=councilConfidence>=84?'STRONG':'FAVOURABLE';else if(!disagree&&bull>=2&&risk<4&&councilConfidence>=60)verdict='FAVOURABLE';
   const conflict=ev.some(x=>x.supports==='BULLISH')&&ev.some(x=>x.supports==='BEARISH');if(conflict)councilConfidence=clamp(councilConfidence-8,25,92);const high=ev.filter(x=>x.reliabilityScore>=72).length,rum=ev.filter(x=>x.type==='RUMOUR').length;
-  const evidenceEngine={rule:'Rank the evidence, not the website.',summary:`${ev.length} evidence items assessed · ${high} high-reliability · ${rum} rumour(s).`,conflict,conflictNote:conflict?'Positive and negative evidence both exist, so Council confidence is reduced.':'No direct positive-vs-negative conflict detected in the captured evidence.',items:ev.sort((a,b)=>b.reliabilityScore-a.reliabilityScore)};
+  const evidenceEngine={rule:'Rank the evidence, not the website.',summary:`${ev.length} evidence items assessed Â· ${high} high-reliability Â· ${rum} rumour(s).`,conflict,conflictNote:conflict?'Positive and negative evidence both exist, so Council confidence is reduced.':'No direct positive-vs-negative conflict detected in the captured evidence.',items:ev.sort((a,b)=>b.reliabilityScore-a.reliabilityScore)};
   const name=ovOK?overview.Name:(cr.meta?.shortName||ticker);
   return res.status(200).json({retrievedAt:new Date().toISOString(),asset:{ticker,name,currency:cr.meta?.currency,price:last},sources:{market:'Yahoo Finance chart data',fundamentals:'Alpha Vantage',news:'Yahoo Finance news search',sentiment:'Horseman multi-signal Conquest model (news attention + trading activity)',newsItems:news},evidenceEngine,horsemen:[war,famine,conquest,death],council:{verdict,confidence:councilConfidence,synopsis:`${name}: ${verdict}. The Council combined price behaviour, available fundamentals, multi-signal crowd attention and Death's risk checks.`,reasons:[`War: ${war.direction}; Famine: ${famine.direction}; Conquest: ${conquest.direction}.`,disagree?'Direct disagreement reduced confidence.':'No direct bullish-vs-bearish split among the primary Horsemen.',risk?`Death raised ${risk} risk point(s).`:'Death found no major connected-data risk flag.'],changeMind:['New price action, company results, verified news, or a material new risk can change the verdict.']}})
  }catch(e){console.error(e);return res.status(500).json({error:'Live analysis failed: '+(e?.message||'unknown error')})}
