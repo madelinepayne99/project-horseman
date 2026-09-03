@@ -51,7 +51,7 @@ export function buildWarInput(series, { now = new Date() } = {}) {
     };
   }
 
-  if (!series.source.simulated && !isSupportedUsEquity(series.source.providerMeta)) {
+  if (!series.source.simulated && !isSupportedUsEquity(series.source)) {
     return {
       ticker: series.ticker,
       dataStatus: "UNSUPPORTED_SECURITY",
