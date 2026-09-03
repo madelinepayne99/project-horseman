@@ -172,7 +172,7 @@ test("v2 degrades honestly when the provider fails â€” no silent fallback t
   assert.equal(res.body.horsemen.length, 4);
 });
 
-test("v2 with no API key configured degrades rather than throwing", () => {
+test("v2 with no API key AND no working fallback degrades rather than throwing", () => {
   // src/config.js reads process.env once at module load, so this scenario
   // must run in a fresh process with the variable genuinely absent â€”
   // mirroring a Vercel cold start with the env var unset.
@@ -182,6 +182,9 @@ test("v2 with no API key configured degrades rather than throwing", () => {
     for(let i=0;i<260;i++){closes.push(300+i*0.1+(i%3===0?-0.35:0.12));vols.push(40000000)}
     global.fetch = async url => {
       const u = String(url);
+      // YahooProvider (range=2y) is made unavailable too: this test is about
+      // TOTAL failure. The fallback itself is covered in yahooFallback.test.js.
+      if (u.includes('/v8/finance/chart/') && u.includes('range=2y')) throw new Error('getaddrinfo ENOTFOUND');
       if (u.includes('/v8/finance/chart/')) return jr({chart:{result:[{meta:{currency:'USD',shortName:'Apple Inc.'},indicators:{quote:[{close:closes,volume:vols}]}}]}});
       if (u.includes('/v1/finance/search')) return jr({news:[]});
       return jr({Symbol:'AAPL',Name:'Apple Inc.'});
@@ -202,6 +205,8 @@ test("v2 with no API key configured degrades rather than throwing", () => {
 
   assert.equal(result.status, 200, "the analysis as a whole must still return");
   assert.equal(result.dataStatus, "DATA_UNAVAILABLE");
+  // The PRIMARY cause is preserved even though a fallback was attempted and
+  // also failed â€” otherwise the real outage would be hidden.
   assert.equal(result.error, "SERVER_MISCONFIGURED", "a missing key must be reported as our misconfiguration, not a provider rejection");
 });
 
