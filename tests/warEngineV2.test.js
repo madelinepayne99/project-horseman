@@ -117,9 +117,9 @@ async function callAnalyse(query, opts) {
 
 const warOf = res => res.body.horsemen.find(h => h.name === "WAR");
 
-test("v1 remains the default and its output shape is unchanged", async () => {
+test("explicit warEngine=v1 selects legacy V1 and its output shape is unchanged", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
-  const res = await callAnalyse({ ticker: "AAPL" });
+  const res = await callAnalyse({ ticker: "AAPL", warEngine: "v1" });
   assert.equal(res._status, 200);
   const war = warOf(res);
   // No provenance block on v1 â€” the default response must not change shape.
@@ -205,10 +205,11 @@ test("v2 with no API key configured degrades rather than throwing", () => {
   assert.equal(result.error, "SERVER_MISCONFIGURED", "a missing key must be reported as our misconfiguration, not a provider rejection");
 });
 
-test("an unrecognised warEngine value falls through to v1", async () => {
+test("an unrecognised warEngine value resolves to V2, never silently to legacy", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
+  // A typo must not quietly serve the legacy engine.
   const res = await callAnalyse({ ticker: "AAPL", warEngine: "v9" });
-  assert.equal("dataSource" in warOf(res), false);
+  assert.equal(warOf(res).dataSource.engine, "v2");
 });
 
 test("Famine is byte-identical across both engines", async () => {
@@ -220,7 +221,7 @@ test("Famine is byte-identical across both engines", async () => {
   // by the M2 and M3 boundary tests below. Famine touches no market data
   // and remains genuinely invariant.
   process.env.TWELVE_DATA_API_KEY = "test-key";
-  const v1 = await callAnalyse({ ticker: "AAPL" });
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" });
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" });
   for (const name of ["FAMINE"]) {
     assert.deepEqual(
@@ -246,7 +247,7 @@ test("M2 boundary: legacy RSI 100 vs Wilder RSI ~65.8 â€” Death follows the
   const opts = { yahooMode: "rampUp", tdMode: "calm" };
 
   // V1: the legacy simple-average RSI sees no losses -> 100 -> flag fires.
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   assert.ok(deathOf(v1).evidence.includes(RSI_FLAG),
     "precondition: legacy Yahoo RSI must exceed Death's >75 threshold");
 
@@ -268,7 +269,7 @@ test("M2: Death uses the authoritative 20-session change, not Yahoo's", async ()
   const opts = { yahooMode: "default", tdMode: "bigMove" };
 
   // Yahoo's 20-session change is ~0.6% -> below Death's >15% threshold.
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   assert.ok(!deathOf(v1).evidence.includes(MOVE_FLAG),
     "precondition: legacy Yahoo 20-session change must be below threshold");
 
@@ -315,7 +316,7 @@ test("M2: missing authoritative facts are handled safely and raise a risk point"
 
 test("M2: V1 Death is completely unaffected â€” no new flag, legacy inputs retained", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
-  const v1 = await callAnalyse({ ticker: "AAPL" }, { yahooMode: "rampUp", tdMode: "calm" });
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, { yahooMode: "rampUp", tdMode: "calm" });
   const death = deathOf(v1);
   assert.ok(death.evidence.includes(RSI_FLAG), "V1 must still use the legacy Yahoo RSI");
   assert.ok(!death.evidence.includes(MISSING_FLAG),
@@ -330,7 +331,7 @@ test("M2: Famine and Council logic untouched by the Death migration", async () =
   // That is covered by the M4 straddle tests. Famine touches no market
   // data and remains genuinely invariant.
   const opts = { yahooMode: "rampUp", tdMode: "calm" };
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   for (const name of ["FAMINE"]) {
@@ -362,7 +363,7 @@ test("M3: Conquest follows the V2 one-day change when the legacy Yahoo move woul
   // The authoritative Twelve Data one-day change is +0.14% (does not).
   const opts = { yahooMode: "spikeLastDay", tdMode: "calm" };
 
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   // Every other Conquest input is identical, so the attention point from
@@ -377,7 +378,7 @@ test("M3: Conquest follows the V2 one-day change when only the authoritative val
   // The mirror image: Yahoo is flat (+0.18%), Twelve Data jumps +5.00%.
   const opts = { yahooMode: "default", tdMode: "spikeLastDay" };
 
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   assert.equal(conquestOf(v2).confidence - conquestOf(v1).confidence, 5,
@@ -386,8 +387,8 @@ test("M3: Conquest follows the V2 one-day change when only the authoritative val
 
 test("M3: V1 Conquest is unchanged â€” legacy lastMove still drives the trigger", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
-  const fired = await callAnalyse({ ticker: "AAPL" }, { yahooMode: "spikeLastDay" });
-  const notFired = await callAnalyse({ ticker: "AAPL" }, { yahooMode: "default" });
+  const fired = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, { yahooMode: "spikeLastDay" });
+  const notFired = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, { yahooMode: "default" });
 
   assert.equal(conquestOf(fired).confidence - conquestOf(notFired).confidence, 5,
     "the legacy Yahoo lastMove must still drive V1's short-term-move trigger");
@@ -403,7 +404,7 @@ test("M3: no silent Yahoo fallback when the authoritative one-day change is unav
     { ticker: "AAPL", warEngine: "v2" },
     { twelveData: "unavailable", yahooMode: "spikeLastDay" }
   );
-  const baseline = await callAnalyse({ ticker: "AAPL" }, { yahooMode: "default" });
+  const baseline = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, { yahooMode: "default" });
 
   assert.equal(conquestOf(v2).confidence, conquestOf(baseline).confidence,
     "Conquest must not inherit the Yahoo move it did not authoritatively receive");
@@ -414,7 +415,7 @@ test("M3: no silent Yahoo fallback when the authoritative one-day change is unav
 test("M3: Conquest's volume, volatility and news inputs are untouched", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
   const opts = { yahooMode: "spikeLastDay", tdMode: "calm" };
-  const v1 = conquestOf(await callAnalyse({ ticker: "AAPL" }, opts));
+  const v1 = conquestOf(await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts));
   const v2 = conquestOf(await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts));
 
   // These remain Yahoo-derived by design â€” the volume source is a separate,
@@ -437,7 +438,7 @@ test("M3: Conquest's volume, volatility and news inputs are untouched", async ()
 test("M3: Famine is unchanged and War still reports V2 provenance", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
   const opts = { yahooMode: "spikeLastDay", tdMode: "calm" };
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   assert.deepEqual(
@@ -459,7 +460,7 @@ test("M4 straddle: legacy RSI 100 vs Wilder 65.8 â€” crowding follows the V
   process.env.TWELVE_DATA_API_KEY = "test-key";
   const opts = { yahooMode: "rampUp", tdMode: "calm" };
 
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   assert.equal(conquestOf(v1).signals.crowding, "ELEVATED",
@@ -472,7 +473,7 @@ test("M4 reverse straddle: legacy RSI 63.7 vs Wilder 100 â€” crowding follo
   process.env.TWELVE_DATA_API_KEY = "test-key";
   const opts = { yahooMode: "default", tdMode: "steadyGains" };
 
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   assert.equal(conquestOf(v1).signals.crowding, "LOW",
@@ -487,7 +488,7 @@ test("M4: crowding's 20-session signal uses the authoritative value (isolated fr
   // 20-session change of ~ -16.7% (fires). Yahoo's is +0.62% (does not).
   const opts = { yahooMode: "default", tdMode: "crashThenDrift" };
 
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   assert.equal(conquestOf(v1).signals.crowding, "LOW");
@@ -497,8 +498,8 @@ test("M4: crowding's 20-session signal uses the authoritative value (isolated fr
 
 test("M4: V1 crowding is unchanged â€” legacy Yahoo r14/ret20 still drive it", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
-  const fires = await callAnalyse({ ticker: "AAPL" }, { yahooMode: "rampUp" });
-  const quiet = await callAnalyse({ ticker: "AAPL" }, { yahooMode: "default" });
+  const fires = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, { yahooMode: "rampUp" });
+  const quiet = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, { yahooMode: "default" });
 
   assert.equal(conquestOf(fires).signals.crowding, "ELEVATED");
   assert.equal(conquestOf(quiet).signals.crowding, "LOW");
@@ -525,7 +526,7 @@ test("M4: no silent Yahoo fallback for crowding inputs when V2 facts are unavail
 test("M4: volume, realizedVolatility, absMoveAvg-based move trigger and news inputs untouched", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
   const opts = { yahooMode: "rampUp", tdMode: "calm" };
-  const v1 = conquestOf(await callAnalyse({ ticker: "AAPL" }, opts));
+  const v1 = conquestOf(await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts));
   const v2 = conquestOf(await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts));
 
   assert.equal(v2.signals.volumeRatio, v1.signals.volumeRatio);
@@ -542,7 +543,7 @@ test("M4: volume, realizedVolatility, absMoveAvg-based move trigger and news inp
 test("M4: Death still follows approved M2 behaviour and Famine is unchanged", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
   const opts = { yahooMode: "rampUp", tdMode: "calm" };
-  const v1 = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v1 = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
   const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
 
   // M2 invariant: Death must not cite the legacy RSI of 100 under v2.
@@ -552,4 +553,99 @@ test("M4: Death still follows approved M2 behaviour and Famine is unchanged", as
     v2.body.horsemen.find(h => h.name === "FAMINE"),
     v1.body.horsemen.find(h => h.name === "FAMINE")
   );
+});
+
+// ---------------------------------------------------------------------
+// DEFAULT SWITCH: V2 is now the default engine. Only an explicit "v1"
+// (case- and whitespace-normalised) selects the legacy Yahoo-derived War.
+// ---------------------------------------------------------------------
+
+const engineOf = res => warOf(res).dataSource ? warOf(res).dataSource.engine : "v1";
+
+test("SWITCH A: no warEngine parameter resolves to V2", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  const res = await callAnalyse({ ticker: "AAPL" });
+  assert.equal(engineOf(res), "v2");
+  assert.equal(warOf(res).dataSource.provider, "twelvedata");
+});
+
+test("SWITCH B: warEngine=v2 resolves to V2", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  assert.equal(engineOf(await callAnalyse({ ticker: "AAPL", warEngine: "v2" })), "v2");
+});
+
+test("SWITCH C: warEngine=v1 selects legacy V1", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  const res = await callAnalyse({ ticker: "AAPL", warEngine: "v1" });
+  assert.equal(engineOf(res), "v1");
+  assert.equal("dataSource" in warOf(res), false, "legacy War carries no provenance block");
+  assert.deepEqual(warOf(res).limits, ["Yahoo market data can be delayed."]);
+});
+
+test("SWITCH D: case and whitespace are normalised â€” 'V1', ' v1 ', ' V1 ' all select legacy", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  for (const value of ["V1", " v1 ", " V1 ", "v1"]) {
+    assert.equal(engineOf(await callAnalyse({ ticker: "AAPL", warEngine: value })), "v1",
+      `warEngine=${JSON.stringify(value)} should select legacy V1`);
+  }
+});
+
+test("SWITCH E/F: unknown and blank values resolve to V2, never to legacy", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  for (const value of ["v9", "", "   ", "V2", "legacy", "1", "true", "v1x"]) {
+    assert.equal(engineOf(await callAnalyse({ ticker: "AAPL", warEngine: value })), "v2",
+      `warEngine=${JSON.stringify(value)} must resolve to V2, not silently to legacy`);
+  }
+});
+
+test("SWITCH G/H: the default path and explicit v2 produce identical output", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  const opts = { yahooMode: "rampUp", tdMode: "calm" };
+  const dflt = await callAnalyse({ ticker: "AAPL" }, opts);
+  const v2 = await callAnalyse({ ticker: "AAPL", warEngine: "v2" }, opts);
+  assert.deepEqual(dflt.body.horsemen, v2.body.horsemen);
+  assert.deepEqual(dflt.body.council, v2.body.council);
+});
+
+test("SWITCH J: the default path uses authoritative V2 facts in Conquest and Death", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  // rampUp: legacy Yahoo RSI is 100; calm: authoritative Wilder RSI is ~65.8.
+  const opts = { yahooMode: "rampUp", tdMode: "calm" };
+  const dflt = await callAnalyse({ ticker: "AAPL" }, opts);
+  const legacy = await callAnalyse({ ticker: "AAPL", warEngine: "v1" }, opts);
+
+  // Death: legacy would flag the RSI; the default path must not.
+  assert.ok(deathOf(legacy).evidence.includes(RSI_FLAG));
+  assert.ok(!deathOf(dflt).evidence.includes(RSI_FLAG));
+  // Conquest: legacy crowding fires on RSI 100; the default path must not.
+  assert.equal(conquestOf(legacy).signals.crowding, "ELEVATED");
+  assert.equal(conquestOf(dflt).signals.crowding, "LOW");
+});
+
+test("SWITCH I: provider failure on the DEFAULT path degrades honestly with no legacy leak", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  // Yahoo's legacy RSI of 100 and its +3.22% move are both in scope and
+  // would fire War, Death and Conquest signals. None of them may be used.
+  const res = await callAnalyse(
+    { ticker: "AAPL" },
+    { twelveData: "unavailable", yahooMode: "rampUp" }
+  );
+
+  assert.equal(res._status, 200, "the analysis as a whole must still return");
+  const war = warOf(res), death = deathOf(res), conquest = conquestOf(res);
+
+  assert.equal(war.dataSource.dataStatus, "DATA_UNAVAILABLE");
+  assert.equal(war.direction, "NEUTRAL");
+  assert.ok(!war.evidence.some(e => e.startsWith("Price ")), "War must not emit legacy price evidence");
+  assert.ok(!war.evidence.some(e => e.startsWith("RSI ")), "War must not emit legacy RSI evidence");
+
+  assert.ok(!death.evidence.includes(RSI_FLAG), "Death must not inherit the legacy Yahoo RSI");
+  assert.ok(death.evidence.includes(MISSING_FLAG));
+
+  assert.equal(conquest.signals.crowding, "LOW", "Conquest crowding must not inherit legacy RSI");
+  assert.ok(conquest.limits.includes(CROWD_UNAVAILABLE));
+  assert.ok(conquest.limits.includes(MOVE_UNAVAILABLE));
+
+  assert.equal(res.body.horsemen.length, 4, "Council still receives all four Horsemen");
+  assert.ok(res.body.council.verdict);
 });
