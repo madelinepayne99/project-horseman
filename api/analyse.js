@@ -85,18 +85,40 @@ module.exports=async function(req,res){
   const publisherCounts={};for(const x of news)publisherCounts[x.source]=(publisherCounts[x.source]||0)+1;const dominantPublisher=news.length?Math.max(...Object.values(publisherCounts))/news.length:0;
   const positiveHeads=news.filter(x=>x.tone>0).length,negativeHeads=news.filter(x=>x.tone<0).length,toneSplit=positiveHeads>0&&negativeHeads>0;
   let attention=0,crowding=0;
+  // --- M3: Conquest's one-day move input --------------------------------
+  // V1 (default): unchanged â€” the legacy Yahoo-derived lastMove.
+  // V2: the authoritative percentChange.oneDay from the shared facts
+  // object (not War's output or evidence text), so Conquest and War cannot
+  // describe the same session's move differently. No fallback to lastMove
+  // if the authoritative value is missing â€” it is treated as unavailable.
+  // Scope note: absMoveAvg (the baseline it is compared against), vr,
+  // realizedVol, crowding and news logic are deliberately untouched here.
+  let conquestLastMove=lastMove,conquestMoveMissing=false;
+  // Crowding's technical inputs follow the same rule: authoritative under
+  // V2, legacy Yahoo under V1, never a silent mix. Thresholds unchanged.
+  let conquestRsi=r14,conquestRet20=ret20,conquestCrowdMissing=false;
+  if(warV2Requested){
+    conquestLastMove=warFactsV2&&warFactsV2.percentChange&&warFactsV2.percentChange.oneDay!=null?warFactsV2.percentChange.oneDay:null;
+    conquestMoveMissing=(conquestLastMove==null);
+    conquestRsi=warFactsV2&&warFactsV2.rsi14!=null?warFactsV2.rsi14:null;
+    conquestRet20=warFactsV2&&warFactsV2.percentChange&&warFactsV2.percentChange.twentyDay!=null?warFactsV2.percentChange.twentyDay:null;
+    conquestCrowdMissing=(conquestRsi==null||conquestRet20==null);
+  }
   if(news24>=4)attention+=2;else if(news72>=5)attention+=1;
   if(vr!=null){if(vr>=2)attention+=2;else if(vr>=1.35)attention+=1}
   if(realizedVol>=3)attention+=1;
-  if(Math.abs(lastMove)>=Math.max(3,absMoveAvg*2.2))attention+=1;
-  if((r14!=null&&(r14>=75||r14<=25)))crowding+=1;
-  if(Math.abs(ret20)>=15)crowding+=1;
+  if(conquestLastMove!=null&&Math.abs(conquestLastMove)>=Math.max(3,absMoveAvg*2.2))attention+=1;
+  if((conquestRsi!=null&&(conquestRsi>=75||conquestRsi<=25)))crowding+=1;
+  if(conquestRet20!=null&&Math.abs(conquestRet20)>=15)crowding+=1;
   if(vr!=null&&vr>=2)crowding+=1;
   if(news.length>=6&&dominantPublisher>=0.6)crowding+=1;
   let cs=nt>=4?2:nt<=-4?-2:nt>0?1:nt<0?-1:0;
   if(toneSplit&&Math.abs(nt)<=2)cs=0;
   const attentionLabel=attention>=4?'VERY HIGH':attention>=2?'ELEVATED':'NORMAL';
   const crowdLabel=crowding>=3?'HIGH':crowding>=1?'ELEVATED':'LOW';
+  const conquestLimits=['Trading activity can reveal attention, but it cannot tell Horseman exactly why people are trading.','News volume is an attention proxy, not a direct survey of investor sentiment.'];
+  if(conquestMoveMissing)conquestLimits.push('Authoritative one-day price move unavailable on this run; the short-term move signal was not applied.');
+  if(conquestCrowdMissing)conquestLimits.push('Authoritative RSI / 20-session change unavailable on this run; the related crowding signals were not applied.');
   const ce=[
     `News attention: ${attentionLabel} (${news24} headline(s) in 24h; ${news72} in 72h)`,
     `Headline mood: ${nt>0?'more positive':nt<0?'more negative':'mixed/neutral'} (${positiveHeads} positive / ${negativeHeads} negative)`,
@@ -111,7 +133,7 @@ module.exports=async function(req,res){
   if(warConfidenceOverride!=null)war.confidence=warConfidenceOverride;
   if(warMeta)war.dataSource=warMeta;
   const famine={icon:'ðŸ¥€',name:'FAMINE',label:'COMPANY & NEWS',simple:'Are the company numbers and current news helping or hurting it?',direction:dir(fs),confidence:clamp(48+Math.abs(fs)*7+(ovOK?8:0),42,90),checked:['Alpha Vantage fundamentals','earnings history','recent news'],evidence:fe.length?fe:['No fundamental evidence returned.'],limits:fl.length?fl:['Fundamentals are historical evidence, not a forecast.']};
-  const conquest={icon:'ðŸ‘‘',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:['Trading activity can reveal attention, but it cannot tell Horseman exactly why people are trading.','News volume is an attention proxy, not a direct survey of investor sentiment.'],signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
+  const conquest={icon:'ðŸ‘‘',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:conquestLimits,signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
   const dirs=[war.direction,famine.direction,conquest.direction],bull=dirs.filter(x=>x==='BULLISH').length,bear=dirs.filter(x=>x==='BEARISH').length,neutral=3-bull-bear,disagree=bull>0&&bear>0;
   // --- M2: Death's technical inputs -------------------------------------
   // V1 (default): unchanged â€” Death reads the legacy Yahoo-derived values.
