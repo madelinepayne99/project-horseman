@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Project Horseman — Live Preview</title>
+<style>
+  :root{
+    --eggshell: #F3EEE4;
+    --eggshell-raised: #FAF7F0;
+    --hairline: #DCD3BF;
+    --charcoal: #211E1B;
+    --charcoal-soft: #55504A;
+    --gold: #A9863F;
+    --gold-soft: #E6D9B8;
+    --purple: #4B3A5C;
+    --purple-soft: #DED4E6;
+    --war: #7A1F2B;
+    --war-soft: #EFDBDD;
+    --famine: #2B4436;
+    --famine-soft: #DCE6DE;
+    --conquest: #1F3A66;
+    --conquest-soft: #DCE3EE;
+    --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+    --sans: 'Inter', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    --radius: 3px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--eggshell);
+    color:var(--charcoal);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+  a{color:inherit;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;}
+  }
+
+  /* ---------- Shared chrome ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:28px 40px 20px;
+    max-width:1120px;margin:0 auto;width:100%;
+  }
+  .brand{
+    display:flex;align-items:baseline;gap:10px;cursor:pointer;
+    font-family:var(--serif);
+  }
+  .brand .mark{
+    font-size:22px;font-weight:600;letter-spacing:0.02em;
+  }
+  .brand .sub{
+    font-family:var(--sans);font-size:11px;letter-spacing:0.14em;
+    color:var(--charcoal-soft);text-transform:uppercase;
+  }
+  .tenet{
+    font-family:var(--serif);font-style:italic;color:var(--charcoal-soft);
+    font-size:14px;
+  }
+
+  main{flex:1;width:100%;}
+
+  footer.legal{
+    text-align:center;padding:28px 20px 40px;color:var(--charcoal-soft);
+    font-size:12px;line-height:1.6;max-width:640px;margin:0 auto;
+  }
+
+  /* ---------- Landing ---------- */
+  .landing-hero{
+    max-width:720px;margin:6vh auto 0;padding:0 24px;text-align:center;
+  }
+  .landing-hero h1{
+    font-family:var(--serif);font-weight:500;font-size:44px;line-height:1.15;
+    margin:0 0 14px;
+  }
+  .landing-hero p.deck{
+    font-size:16px;color:var(--charcoal-soft);line-height:1.6;margin:0 auto 36px;
+    max-width:520px;
+  }
+
+  .search-wrap{position:relative;max-width:520px;margin:0 auto;}
+  .search-field{
+    display:flex;align-items:center;gap:10px;
+    background:var(--eggshell-raised);
+    border:1px solid var(--hairline);
+    border-radius:var(--radius);
+    padding:14px 18px;
+  }
+  .search-field:focus-within{border-color:var(--gold);}
+  .search-field input{
+    border:none;background:transparent;outline:none;
+    font-family:var(--sans);font-size:16px;color:var(--charcoal);
+    width:100%;
+  }
+  .search-field input::placeholder{color:#9A9184;}
+  .search-icon{color:var(--charcoal-soft);flex-shrink:0;}
+
+  .autocomplete{
+    position:absolute;left:0;right:0;top:calc(100% + 6px);
+    background:var(--eggshell-raised);
+    border:1px solid var(--hairline);
+    border-radius:var(--radius);
+    text-align:left;
+    overflow:hidden;
+    z-index:20;
+    box-shadow:0 8px 24px rgba(33,30,27,0.08);
+  }
+  .autocomplete button{
+    display:flex;width:100%;align-items:center;justify-content:space-between;
+    padding:12px 18px;background:none;border:none;text-align:left;cursor:pointer;
+    font-family:var(--sans);font-size:14px;color:var(--charcoal);
+    border-bottom:1px solid var(--hairline);
+  }
+  .autocomplete button:last-child{border-bottom:none;}
+  .autocomplete button:hover{background:var(--eggshell);}
+  .autocomplete .name{font-weight:500;}
+  .autocomplete .ticker{color:var(--charcoal-soft);font-variant-numeric:tabular-nums;letter-spacing:0.02em;}
+
+  .selected-pill{
+    display:inline-flex;align-items:center;gap:10px;
+    margin:18px auto 0;padding:10px 16px;
+    background:var(--eggshell-raised);border:1px solid var(--hairline);
+    border-radius:999px;font-size:14px;
+  }
+  .selected-pill .x{
+    cursor:pointer;color:var(--charcoal-soft);font-size:14px;line-height:1;
+  }
+
+  .summon-btn{
+    margin-top:28px;
+    font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:0.03em;
+    background:var(--charcoal);color:var(--eggshell);
+    border:none;border-radius:var(--radius);
+    padding:15px 34px;cursor:pointer;
+    transition:background 0.15s ease;
+  }
+  .summon-btn:hover{background:#3a352f;}
+  .summon-btn:disabled{background:#C9C1B2;cursor:not-allowed;}
+
+  /* Horsemen intro */
+  .horsemen-intro{
+    max-width:980px;margin:9vh auto 0;padding:0 24px 8vh;
+  }
+  .horsemen-intro .label{
+    text-align:center;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--charcoal-soft);margin-bottom:28px;
+  }
+  .horsemen-grid{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:var(--hairline);border:1px solid var(--hairline);
+  }
+  .horseman-card{
+    background:var(--eggshell-raised);
+    padding:26px 22px;
+  }
+  .horseman-card .glyph{
+    width:8px;height:8px;border-radius:50%;margin-bottom:16px;
+  }
+  .horseman-card h3{
+    font-family:var(--serif);font-size:19px;margin:0 0 8px;letter-spacing:0.01em;
+  }
+  .horseman-card .quote{
+    font-family:var(--serif);font-style:italic;font-size:14px;
+    color:var(--charcoal-soft);margin:0 0 14px;line-height:1.5;
+  }
+  .horseman-card .scope{
+    font-size:12.5px;color:var(--charcoal-soft);line-height:1.6;margin:0;
+  }
+  .war .glyph{background:var(--war);} .famine .glyph{background:var(--famine);}
+  .conquest .glyph{background:var(--conquest);} .death .glyph{background:var(--purple);}
+  .war h3{color:var(--war);} .famine h3{color:var(--famine);}
+  .conquest h3{color:var(--conquest);} .death h3{color:var(--purple);}
+
+  @media (max-width:820px){
+    .horsemen-grid{grid-template-columns:1fr 1fr;}
+    .landing-hero h1{font-size:32px;}
+  }
+  @media (max-width:520px){
+    .horsemen-grid{grid-template-columns:1fr;}
+    .topbar{padding:22px 20px 12px;flex-direction:column;align-items:flex-start;gap:6px;}
+  }
+
+  /* ---------- Summoning ---------- */
+  .summon-screen{
+    max-width:560px;margin:14vh auto 0;padding:0 24px;
+  }
+  .summon-target{
+    text-align:center;color:var(--charcoal-soft);font-size:13px;
+    letter-spacing:0.06em;text-transform:uppercase;margin-bottom:40px;
+  }
+  .summon-steps{display:flex;flex-direction:column;gap:0;}
+  .summon-step{
+    display:flex;align-items:center;gap:16px;padding:16px 0;
+    border-bottom:1px solid var(--hairline);
+    opacity:0.25;transition:opacity 0.4s ease;
+  }
+  .summon-step.active{opacity:1;}
+  .summon-step.done{opacity:0.55;}
+  .summon-step .dot{
+    width:9px;height:9px;border-radius:50%;background:var(--hairline);flex-shrink:0;
+    transition:background 0.3s ease, transform 0.3s ease;
+  }
+  .summon-step.active .dot{transform:scale(1.3);}
+  .summon-step.done .dot{background:var(--charcoal);}
+  .summon-step .step-text{flex:1;}
+  .summon-step .step-name{
+    font-family:var(--serif);font-size:16px;margin:0 0 2px;
+  }
+  .summon-step .step-msg{
+    font-size:13px;color:var(--charcoal-soft);margin:0;
+  }
+  .summon-step.war.active .dot, .summon-step.war.active .step-name{color:var(--war);}
+  .summon-step.war.active .dot{background:var(--war);}
+  .summon-step.famine.active .dot{background:var(--famine);}
+  .summon-step.famine.active .step-name{color:var(--famine);}
+  .summon-step.conquest.active .dot{background:var(--conquest);}
+  .summon-step.conquest.active .step-name{color:var(--conquest);}
+  .summon-step.death.active .dot{background:var(--purple);}
+  .summon-step.death.active .step-name{color:var(--purple);}
+  .summon-step.council.active .dot{background:var(--gold);}
+  .summon-step.council.active .step-name{color:var(--gold);}
+
+  /* ---------- Results ---------- */
+  .results-wrap{max-width:760px;margin:0 auto;padding:0 24px 10vh;}
+  .ticker-line{
+    text-align:center;font-size:13px;color:var(--charcoal-soft);
+    letter-spacing:0.04em;margin:6px 0 34px;
+  }
+  .ticker-line strong{color:var(--charcoal);font-weight:600;}
+
+  .verdict-block{
+    text-align:center;padding:44px 20px 38px;
+    background:var(--eggshell-raised);
+    border:1px solid var(--gold-soft);
+    border-top:3px solid var(--gold);
+    border-radius:var(--radius);
+    margin-bottom:28px;
+  }
+  .verdict-eyebrow{
+    font-size:12px;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--gold);margin-bottom:16px;font-weight:600;
+  }
+  .verdict-word{
+    font-family:var(--serif);font-size:46px;font-weight:600;margin:0 0 14px;
+    color:var(--charcoal);
+  }
+  .verdict-confidence{
+    display:inline-flex;align-items:center;gap:8px;
+    font-size:14px;color:var(--charcoal-soft);margin-bottom:22px;
+  }
+  .verdict-confidence .num{
+    font-family:var(--serif);font-size:20px;color:var(--gold);font-weight:600;
+  }
+  .verdict-explain{
+    max-width:520px;margin:0 auto;font-size:15.5px;line-height:1.65;
+    color:var(--charcoal);
+  }
+  .confidence-note{
+    font-size:11.5px;color:var(--charcoal-soft);margin-top:18px;
+    font-style:italic;max-width:460px;margin-left:auto;margin-right:auto;
+  }
+  .proto-note{
+    font-size:11.5px;color:var(--purple);margin:0 auto 18px;max-width:480px;
+    line-height:1.5;
+  }
+  .sim-badge{
+    font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;
+    color:var(--charcoal-soft);background:var(--eggshell);border:1px solid var(--hairline);
+    border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:middle;
+  }
+
+  .death-block{
+    background:var(--charcoal);color:var(--eggshell);
+    border-radius:var(--radius);
+    padding:30px 32px;margin-bottom:28px;
+    border-left:4px solid var(--purple);
+  }
+  .death-block .dh-eyebrow{
+    font-size:12px;letter-spacing:0.12em;text-transform:uppercase;
+    color:var(--purple-soft);font-weight:600;margin-bottom:12px;
+  }
+  .death-block .dh-text{
+    font-family:var(--serif);font-size:19px;line-height:1.5;margin:0 0 14px;
+  }
+  .death-block .dh-meta{
+    font-size:12.5px;color:#C9C2D1;line-height:1.6;
+  }
+  .death-block .dh-meta b{color:var(--eggshell);}
+
+  .horseman-report{
+    display:flex;gap:18px;padding:22px 4px;
+    border-bottom:1px solid var(--hairline);
+  }
+  .horseman-report:last-of-type{border-bottom:none;}
+  .hr-bar{width:4px;border-radius:2px;flex-shrink:0;}
+  .hr-bar.war{background:var(--war);} .hr-bar.famine{background:var(--famine);}
+  .hr-bar.conquest{background:var(--conquest);}
+  .hr-body{flex:1;}
+  .hr-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    margin-bottom:6px;flex-wrap:wrap;gap:6px;
+  }
+  .hr-head h4{
+    font-family:var(--serif);font-size:17px;margin:0;
+  }
+  .hr-head h4.war{color:var(--war);} .hr-head h4.famine{color:var(--famine);}
+  .hr-head h4.conquest{color:var(--conquest);}
+  .hr-stat{font-size:13px;color:var(--charcoal-soft);font-variant-numeric:tabular-nums;}
+  .hr-reason{font-size:14.5px;line-height:1.6;color:var(--charcoal);margin:0;}
+
+  .section-title{
+    font-size:12px;letter-spacing:0.1em;text-transform:uppercase;
+    color:var(--charcoal-soft);margin:38px 0 4px;
+  }
+
+  .evidence-toggle{
+    width:100%;display:flex;align-items:center;justify-content:space-between;
+    background:var(--eggshell-raised);border:1px solid var(--hairline);
+    border-radius:var(--radius);padding:16px 20px;cursor:pointer;
+    font-family:var(--sans);font-size:14px;font-weight:600;color:var(--charcoal);
+    margin-top:34px;
+  }
+  .evidence-toggle .chev{transition:transform 0.2s ease;color:var(--charcoal-soft);}
+  .evidence-toggle.open .chev{transform:rotate(180deg);}
+  .evidence-panel{
+    display:none;border:1px solid var(--hairline);border-top:none;
+    border-radius:0 0 var(--radius) var(--radius);padding:6px 20px 18px;
+    background:var(--eggshell-raised);
+  }
+  .evidence-panel.open{display:block;}
+  .evidence-principle{
+    font-family:var(--serif);font-style:italic;font-size:13.5px;
+    color:var(--charcoal-soft);padding:16px 0 6px;border-bottom:1px solid var(--hairline);
+    margin-bottom:6px;
+  }
+  .evidence-item{
+    padding:16px 0;border-bottom:1px solid var(--hairline);
+  }
+  .evidence-item:last-child{border-bottom:none;}
+  .ev-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+  .ev-source{font-weight:600;font-size:13.5px;}
+  .ev-badge{
+    font-size:10.5px;letter-spacing:0.05em;text-transform:uppercase;
+    padding:2px 7px;border-radius:999px;font-weight:600;
+  }
+  .ev-badge.support{background:var(--famine-soft);color:var(--famine);}
+  .ev-badge.challenge{background:var(--war-soft);color:var(--war);}
+  .ev-badge.horseman{background:var(--eggshell);color:var(--charcoal-soft);border:1px solid var(--hairline);}
+  .ev-badge.sim{background:var(--purple-soft);color:var(--purple);}
+  .ev-date{font-size:12px;color:var(--charcoal-soft);}
+  .ev-summary{font-size:13.5px;line-height:1.55;margin:0 0 6px;color:var(--charcoal);}
+  .ev-meta{font-size:12px;color:var(--charcoal-soft);line-height:1.6;}
+
+  .new-search{
+    display:block;text-align:center;margin:44px auto 0;
+    background:none;border:1px solid var(--hairline);border-radius:var(--radius);
+    padding:13px 26px;font-family:var(--sans);font-size:13.5px;font-weight:600;
+    color:var(--charcoal);cursor:pointer;
+  }
+  .new-search:hover{border-color:var(--charcoal);}
+
+  /* ---------- WAR real-data debug panel (developer view, this phase only) ---------- */
+  .debug-panel{
+    margin-top:40px;border:1px dashed var(--hairline);border-radius:var(--radius);
+    padding:20px 22px;background:#FBFAF6;
+  }
+  .debug-title{
+    font-family:var(--sans);font-weight:700;font-size:12.5px;letter-spacing:0.06em;
+    text-transform:uppercase;color:var(--war);margin-bottom:12px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .debug-tag{
+    font-weight:600;letter-spacing:0.03em;text-transform:none;font-size:11px;
+    color:var(--charcoal-soft);background:var(--eggshell);border:1px solid var(--hairline);
+    border-radius:999px;padding:2px 8px;
+  }
+  .debug-status-badge{
+    display:inline-block;font-size:11px;font-weight:700;letter-spacing:0.05em;
+    text-transform:uppercase;padding:3px 9px;border-radius:999px;margin-bottom:12px;
+  }
+  .debug-status-badge.fresh{background:var(--famine-soft);color:var(--famine);}
+  .debug-status-badge.stale{background:var(--gold-soft);color:#7A5F1F;}
+  .debug-status-badge.partial{background:var(--gold-soft);color:#7A5F1F;}
+  .debug-status-badge.unavailable{background:var(--war-soft);color:var(--war);}
+  .debug-row{
+    display:flex;justify-content:space-between;gap:16px;padding:6px 0;
+    border-bottom:1px solid var(--hairline);font-size:13px;
+  }
+  .debug-row:last-child{border-bottom:none;}
+  .debug-label{color:var(--charcoal-soft);}
+  .debug-value{font-variant-numeric:tabular-nums;text-align:right;color:var(--charcoal);}
+  .debug-note{font-size:12.5px;color:var(--charcoal-soft);line-height:1.6;margin:0;}
+</style>
+<style>
+  /* Additions for the live preview build. Presentation only. */
+  .live-badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:#2B4436;background:#DCE6DE;border:1px solid #B9CDBF;
+    border-radius:999px;padding:2px 8px;margin-left:8px;vertical-align:middle;}
+  .fallback-badge{background:#F6ECD8;border-color:#E0CBA0;color:#7A5A1F;}
+  .error-block{max-width:640px;margin:60px auto;padding:26px;border:1px solid var(--hairline);
+    background:var(--eggshell-raised);border-radius:var(--radius);}
+  .error-block h3{font-family:var(--serif);margin:0 0 10px;font-size:22px;}
+  .error-block p{color:var(--charcoal-soft);line-height:1.55;margin:0 0 8px;}
+  .error-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    color:var(--charcoal-soft);background:var(--eggshell);border:1px solid var(--hairline);
+    padding:8px 10px;border-radius:2px;margin-top:12px;word-break:break-word;}
+  .hr-limits{margin-top:10px;font-size:12.5px;color:var(--charcoal-soft);line-height:1.5;}
+  .hr-limits b{display:block;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--charcoal-soft);margin-bottom:3px;}
+  .hr-checked{margin-top:8px;font-size:12px;color:var(--charcoal-soft);}
+  .hr-evidence{margin:8px 0 0;padding-left:18px;color:var(--charcoal);font-size:13.5px;line-height:1.55;}
+  .council-list{margin:6px 0 0;padding-left:18px;color:var(--charcoal-soft);
+    font-size:13px;line-height:1.55;text-align:left;}
+  .council-sub{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--charcoal-soft);margin:18px 0 2px;}
+  .council-inner{max-width:560px;margin:0 auto;}
+  .summon-note{margin-top:22px;font-size:12px;color:var(--charcoal-soft);text-align:center;}
+  .news-list{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.6;}
+  .news-list a{color:var(--conquest);}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* =====================================================================
+   PROJECT HORSEMAN — LIVE PREVIEW INTERFACE
+   ---------------------------------------------------------------------
+   This file is the premium prototype's PRESENTATION connected to the REAL
+   backend. There is deliberately NO analysis logic here of any kind:
+
+     - no seeded RNG, no simulators, no fabricated evidence
+     - no local scoring, no local Council judgement
+     - every War / Famine / Conquest / Death / Council value rendered below
+       comes verbatim from ONE /api/analyse response
+
+   The staged summoning sequence is PRESENTATION ONLY. It runs on timers
+   while a single request is in flight; it never triggers further requests
+   and never invents an intermediate result.
+   ===================================================================== */
+
+const SECURITIES = [
+  {name:"Apple", ticker:"AAPL"}, {name:"Tesla", ticker:"TSLA"},
+  {name:"Microsoft", ticker:"MSFT"}, {name:"NVIDIA", ticker:"NVDA"},
+  {name:"Amazon", ticker:"AMZN"}, {name:"Alphabet", ticker:"GOOGL"},
+  {name:"Meta Platforms", ticker:"META"}, {name:"Netflix", ticker:"NFLX"},
+  {name:"Nike", ticker:"NKE"}, {name:"Coca-Cola", ticker:"KO"},
+  {name:"JPMorgan Chase", ticker:"JPM"}, {name:"Walmart", ticker:"WMT"},
+];
+
+const SUMMON_STEPS = [
+  {key:"war",      name:"War",         msg:"Reading the battlefield…"},
+  {key:"famine",   name:"Famine",      msg:"Reading the world around the trade…"},
+  {key:"conquest", name:"Conquest",    msg:"Reading the crowd…"},
+  {key:"death",    name:"Death",       msg:"Searching for the reason not to…"},
+  {key:"council",  name:"The Council", msg:"Weighing the evidence…"},
+];
+const STEP_DELAY = 620;
+
+const HORSEMAN_KEY = {WAR:"war", FAMINE:"famine", CONQUEST:"conquest", DEATH:"death"};
+
+const state = {
+  screen:"landing", query:"", selected:null,
+  analysis:null, error:null, evidenceOpen:false,
+  summonStepIndex:0, stillWorking:false,
+};
+
+/* ---------- escaping ---------- */
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, m =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+function safe(v){ return {__safe:String(v ?? "")}; }
+function html(strings, ...vals){
+  return strings.reduce((out, s, k) => {
+    if (k === 0) return s;
+    const v = vals[k-1];
+    return out + (v && v.__safe !== undefined ? v.__safe : escapeHtml(v)) + s;
+  }, "");
+}
+function el(markup){
+  const t = document.createElement('template');
+  t.innerHTML = markup.trim();
+  return t.content.firstElementChild;
+}
+
+/* ---------- chrome ---------- */
+function Topbar(){
+  return `<div class="topbar">
+    <div class="brand" onclick="goHome()"><span class="mark">PROJECT HORSEMAN</span></div>
+    <div class="tenet">The Council evaluates. You decide.</div>
+  </div>`;
+}
+function goHome(){
+  state.screen="landing"; state.selected=null; state.query="";
+  state.analysis=null; state.error=null; render();
+}
+
+function render(){
+  const app = document.getElementById('app');
+  app.innerHTML = "";
+  if (state.screen === "landing")        app.appendChild(renderLanding());
+  else if (state.screen === "summoning") app.appendChild(renderSummoning());
+  else if (state.screen === "error")     app.appendChild(renderError());
+  else                                   app.appendChild(renderResults());
+}
+
+/* ---------- landing ---------- */
+function renderLanding(){
+  const wrap = el(`<div>${Topbar()}<main></main><footer class="legal">
+      Project Horseman analyses currently available evidence to help you weigh a trade.
+      It does not predict the future or guarantee a profitable outcome, and confidence
+      reflects the strength and agreement of evidence — not a probability of profit.
+    </footer></div>`);
+  const main = wrap.querySelector('main');
+  const q = state.query.trim().toLowerCase();
+  const matches = q ? SECURITIES.filter(s =>
+      s.name.toLowerCase().includes(q) || s.ticker.toLowerCase().includes(q)
+    ).slice(0,6) : [];
+
+  main.appendChild(el(html`
+    <div class="landing-hero">
+      <h1>Before you trade, hear the four out.</h1>
+      <p class="deck">Search a company or ticker. Four independent perspectives will
+      investigate it, and the Council will judge what they find — plainly, and in one place.</p>
+      <div class="search-wrap">
+        <div class="search-field">
+          <span class="search-icon">⌕</span>
+          <input id="search-input" type="text" autocomplete="off"
+                 placeholder="Search a company or ticker (US equities)"
+                 value="${state.query}" />
+        </div>
+        <div class="autocomplete" id="autocomplete"></div>
+        ${safe(state.selected ? `<div class="selected-pill">${escapeHtml(state.selected.name)} · ${escapeHtml(state.selected.ticker)}</div>` : "")}
+        <button class="summon-btn" id="summon-btn" ${safe(state.selected ? "" : "disabled")}>Summon the Horsemen</button>
+      </div>
+    </div>`));
+
+  const ac = main.querySelector('#autocomplete');
+  matches.forEach(m => {
+    const row = el(html`<div class="ac-item"><strong>${m.name}</strong> <span>${m.ticker}</span></div>`);
+    row.onclick = () => { state.selected = m; state.query = m.name; render(); };
+    ac.appendChild(row);
+  });
+
+  const input = main.querySelector('#search-input');
+  input.oninput = e => {
+    state.query = e.target.value;
+    // Free text is allowed: the backend accepts any US symbol, not just the
+    // suggestion list. A bare ticker becomes the selection directly.
+    const raw = state.query.trim().toUpperCase();
+    const known = SECURITIES.find(s => s.ticker === raw);
+    state.selected = known || (/^[A-Z0-9.\-]{1,10}$/.test(raw) ? {name:raw, ticker:raw} : null);
+    const btn = main.querySelector('#summon-btn');
+    if (btn) btn.disabled = !state.selected;
+    const acEl = main.querySelector('#autocomplete');
+    if (acEl){
+      acEl.innerHTML = "";
+      const q2 = state.query.trim().toLowerCase();
+      (q2 ? SECURITIES.filter(s => s.name.toLowerCase().includes(q2) || s.ticker.toLowerCase().includes(q2)).slice(0,6) : [])
+        .forEach(m => {
+          const row = el(html`<div class="ac-item"><strong>${m.name}</strong> <span>${m.ticker}</span></div>`);
+          row.onclick = () => { state.selected = m; state.query = m.name; render(); };
+          acEl.appendChild(row);
+        });
+    }
+  };
+  input.onkeydown = e => { if (e.key === "Enter" && state.selected) beginSummon(); };
+  const btn = main.querySelector('#summon-btn');
+  if (btn) btn.onclick = beginSummon;
+  return wrap;
+}
+
+/* ---------- summoning (presentation only) ---------- */
+function renderSummoning(){
+  const wrap = el(`<div>${Topbar()}<main></main></div>`);
+  const main = wrap.querySelector('main');
+  main.appendChild(el(html`
+    <div class="summon-screen">
+      <div class="summon-target">Summoning for ${state.selected.name} (${state.selected.ticker})</div>
+      <div class="summon-steps">
+        ${safe(SUMMON_STEPS.map((s,i)=>{
+          const cls = i < state.summonStepIndex ? "done" : (i === state.summonStepIndex ? "active" : "");
+          return `<div class="summon-step ${s.key} ${cls}">
+            <div class="dot"></div>
+            <div class="step-text">
+              <p class="step-name">${escapeHtml(s.name)}</p>
+              <p class="step-msg">${escapeHtml(s.msg)}</p>
+            </div></div>`;
+        }).join(""))}
+      </div>
+      ${safe(state.stillWorking ? `<p class="summon-note">Still gathering evidence from the market…</p>` : "")}
+    </div>`));
+  return wrap;
+}
+
+/* =====================================================================
+   THE ONLY NETWORK CALL. One request per summon.
+   ===================================================================== */
+function beginSummon(){
+  if (!state.selected) return;
+  state.screen = "summoning";
+  state.summonStepIndex = 0;
+  state.stillWorking = false;
+  state.analysis = null;
+  state.error = null;
+  render();
+
+  const url = new URL('/api/analyse', window.location.origin);
+  url.searchParams.set('ticker', state.selected.ticker);
+
+  const request = fetch(url.href, {method:'GET', headers:{'Accept':'application/json'}})
+    .then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('Analysis failed (HTTP ' + r.status + ')'));
+      return d;
+    });
+
+  const animation = new Promise(resolve => {
+    (function step(){
+      render();
+      if (state.summonStepIndex < SUMMON_STEPS.length - 1){
+        setTimeout(() => { state.summonStepIndex++; step(); }, STEP_DELAY);
+      } else {
+        setTimeout(resolve, STEP_DELAY);
+      }
+    })();
+  });
+
+  // Results appear only when the real response has arrived. If the request
+  // outlasts the sequence we wait and say so — we never show a result that
+  // has not been returned by the backend.
+  animation.then(() => {
+    if (!state.analysis && !state.error){ state.stillWorking = true; render(); }
+  });
+
+  Promise.all([request, animation])
+    .then(([data]) => {
+      state.analysis = data;
+      state.screen = "results";
+      state.evidenceOpen = false;
+      render();
+    })
+    .catch(err => {
+      state.error = err && err.message ? err.message : String(err);
+      state.screen = "error";
+      render();
+    });
+}
+
+/* ---------- honest failure ---------- */
+function renderError(){
+  const wrap = el(`<div>${Topbar()}<main></main></div>`);
+  wrap.querySelector('main').appendChild(el(html`
+    <div class="error-block">
+      <h3>The Horsemen could not ride.</h3>
+      <p>Horseman could not complete a live analysis for
+         <strong>${state.selected ? state.selected.ticker : "this security"}</strong>.
+         No verdict is shown, because no verdict was reached.</p>
+      <p>Nothing here is estimated or simulated — if the evidence cannot be
+         gathered, Horseman says so rather than guessing.</p>
+      <div class="error-code">${state.error}</div>
+      <button class="new-search" id="err-back">Start a new search</button>
+    </div>`));
+  wrap.querySelector('#err-back').onclick = goHome;
+  return wrap;
+}
+
+/* ---------- results: 100% backend data ---------- */
+function findHorseman(name){
+  return (state.analysis.horsemen || []).find(h => h && h.name === name) || null;
+}
+
+function horsemanRow(h){
+  if (!h) return "";
+  const key = HORSEMAN_KEY[h.name] || "war";
+  return html`
+    <div class="horseman-report">
+      <div class="hr-bar ${safe(key)}"></div>
+      <div class="hr-body">
+        <div class="hr-head">
+          <h4 class="${safe(key)}">${h.label}</h4>
+          <span class="hr-stat">${h.direction} — ${h.confidence}%</span>
+        </div>
+        <p class="hr-reason">${h.simple}</p>
+        <ul class="hr-evidence">
+          ${safe((h.evidence || []).map(e => `<li>${escapeHtml(e)}</li>`).join(""))}
+        </ul>
+        <div class="hr-checked">Checked: ${(h.checked || []).join(" · ")}</div>
+        ${safe((h.limits && h.limits.length)
+          ? `<div class="hr-limits"><b>Limits / missing data</b>${
+               h.limits.map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>`
+          : "")}
+      </div>
+    </div>`;
+}
+
+function warProvenance(){
+  const w = findHorseman("WAR");
+  const ds = w && w.dataSource;
+  if (!ds) return "";
+  const rows = [
+    ["Engine", ds.engine], ["Provider", ds.provider],
+    ["Simulated", String(ds.simulated)], ["Data status", ds.dataStatus],
+    ["Candles used", ds.candlesUsed], ["Latest datapoint", ds.latestDataTimestamp],
+    ["Latest bar provisional", String(ds.latestBarIsProvisional)],
+    ["Calculation version", ds.calculationVersion],
+  ].filter(r => r[1] !== undefined && r[1] !== null);
+  if (ds.fallbackFrom) rows.push(["Fell back from", ds.fallbackFrom], ["Fallback reason", ds.fallbackReason]);
+  const isFallback = ds.provider === "yahoo-fallback";
+  const badge = ds.dataStatus === "DATA_UNAVAILABLE"
+    ? `<span class="live-badge fallback-badge">Data unavailable</span>`
+    : `<span class="live-badge${isFallback ? " fallback-badge" : ""}">${isFallback ? "Fallback data" : "Live data"}</span>`;
+  return html`
+    <div class="debug-panel">
+      <div class="debug-title">War — market-data provenance ${safe(badge)}
+        <span class="debug-tag">developer view</span></div>
+      ${safe(rows.map(([k,v]) =>
+        `<div class="debug-row"><span class="debug-label">${escapeHtml(k)}</span>
+         <span class="debug-value">${escapeHtml(v)}</span></div>`).join(""))}
+    </div>`;
+}
+
+function evidenceItems(){
+  const e = state.analysis.evidenceEngine;
+  if (!e || !(e.items || []).length) return "";
+  return e.items.map(x => html`
+    <div class="evidence-item">
+      <div class="ev-top">
+        <span class="ev-source">${x.source}</span>
+        <span class="ev-badge horseman">${x.type}</span>
+        <span class="ev-badge">Supports: ${x.supports}</span>
+        <span class="ev-date">${x.freshness || x.published || ""}</span>
+      </div>
+      <p class="ev-summary">${x.claim}</p>
+      <div class="ev-meta">Reliability: ${x.reliability} ${x.reliabilityScore}% ·
+        ${x.confirmed ? "Confirmed elsewhere" : "Not independently confirmed"} ·
+        ${x.possibleBias}</div>
+    </div>`).join("");
+}
+
+function renderResults(){
+  const d = state.analysis;
+  const council = d.council || {};
+  const war = findHorseman("WAR"), famine = findHorseman("FAMINE"),
+        conquest = findHorseman("CONQUEST"), death = findHorseman("DEATH");
+  const src = d.sources || {};
+  const news = (src.newsItems || []).slice(0,6);
+
+  const wrap = el(`<div>${Topbar()}<main></main></div>`);
+  const main = wrap.querySelector('main');
+
+  main.appendChild(el(html`
+    <div class="results-wrap">
+      <div class="ticker-line">Analysis for
+        <strong>${(d.asset && d.asset.name) || state.selected.name} (${(d.asset && d.asset.ticker) || state.selected.ticker})</strong>
+        · live analysis completed ${d.retrievedAt ? new Date(d.retrievedAt).toLocaleString() : ""}
+        · market data: ${src.market || "—"}</div>
+
+      <div class="verdict-block">
+        <div class="verdict-eyebrow">The Council Has Decided</div>
+        <div class="verdict-word">${council.verdict}</div>
+        <div class="verdict-confidence"><span class="num">${council.confidence}%</span> confidence</div>
+        <p class="verdict-explain">${council.synopsis}</p>
+        <div class="council-inner">
+          ${safe((council.reasons || []).length ? `<p class="council-sub">Why</p><ul class="council-list">${
+            council.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "")}
+          ${safe((council.changeMind || []).length ? `<p class="council-sub">What would change the Council's mind</p><ul class="council-list">${
+            council.changeMind.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "")}
+        </div>
+        <p class="confidence-note">Confidence reflects the strength, quality and agreement of
+        evidence the Council currently has — not a probability that this trade will be profitable.</p>
+      </div>
+
+      ${safe(death ? html`
+      <div class="death-block">
+        <div class="dh-eyebrow">Death's Challenge</div>
+        <p class="dh-text">${death.simple}</p>
+        <ul class="hr-evidence">
+          ${safe((death.evidence || []).map(e => `<li>${escapeHtml(e)}</li>`).join(""))}
+        </ul>
+        <div class="dh-meta"><b>${death.direction} — ${death.confidence}%</b> —
+          heard before every verdict, not offered after the fact.</div>
+        ${safe((death.limits || []).length ? `<div class="hr-limits"><b>Limits / missing data</b>${
+          death.limits.map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>` : "")}
+      </div>` : "")}
+
+      <div class="section-title">The Other Horsemen</div>
+      ${safe(horsemanRow(war))}
+      ${safe(horsemanRow(famine))}
+      ${safe(horsemanRow(conquest))}
+
+      <button class="evidence-toggle" id="evidence-toggle">
+        <span>View the Council's evidence</span><span class="chev">⌄</span>
+      </button>
+      <div class="evidence-panel" id="evidence-panel">
+        <div class="evidence-principle">${(d.evidenceEngine && d.evidenceEngine.rule) || "Rank the evidence, not the website."}</div>
+        <p class="ev-meta">${(d.evidenceEngine && d.evidenceEngine.summary) || ""}</p>
+        <p class="ev-meta">${(d.evidenceEngine && d.evidenceEngine.conflictNote) || ""}</p>
+        ${safe(evidenceItems())}
+        ${safe(news.length ? `<div class="evidence-item"><div class="ev-top"><span class="ev-source">Recent sources checked</span></div>
+          <ul class="news-list">${news.map(n =>
+            `<li><a target="_blank" rel="noopener" href="${escapeHtml(n.url)}">${escapeHtml(n.title)}</a>
+             <span class="ev-meta">(${escapeHtml(n.source)})</span></li>`).join("")}</ul></div>` : "")}
+      </div>
+
+      ${safe(warProvenance())}
+      <button class="new-search" id="new-search-btn">Start a new search</button>
+    </div>`));
+
+  const toggle = main.querySelector('#evidence-toggle');
+  const panel  = main.querySelector('#evidence-panel');
+  if (state.evidenceOpen) panel.classList.add('open');
+  toggle.onclick = () => { state.evidenceOpen = !state.evidenceOpen; panel.classList.toggle('open'); };
+  main.querySelector('#new-search-btn').onclick = goHome;
+  return wrap;
+}
+
+render();
+</script>
+</body></html>
