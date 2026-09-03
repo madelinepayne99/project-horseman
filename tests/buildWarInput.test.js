@@ -11,7 +11,15 @@ function seriesFrom(closes, { simulated = false, provider = "test", providerMeta
     ticker: "TEST",
     companyName: "Test Co",
     points: makePoints(closes, { withVolume: true }),
-    source: { provider, simulated, fetchedAt: new Date().toISOString(), requestedTicker: "TEST", providerMeta },
+    // Canonical market metadata sits alongside the verbatim providerMeta,
+    // mirroring what a real adapter produces at the normalisation boundary.
+    source: {
+      provider, simulated, fetchedAt: new Date().toISOString(), requestedTicker: "TEST",
+      exchange: providerMeta?.exchange ?? null,
+      country: providerMeta?.country ?? null,
+      exchangeTimezone: providerMeta?.exchange_timezone ?? null,
+      providerMeta,
+    },
   };
 }
 
