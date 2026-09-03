@@ -42,15 +42,44 @@ module.exports=async function(req,res){
   // evidence strings, so War interprets and they cross-examine the same
   // underlying numbers.
   let warFactsV2=null,useWarV2=String(req.query?.warEngine||'').trim().toLowerCase()!=='v1';
+  // Fallback fires ONLY for these codes â€” a hard failure to obtain any
+  // series at all. Everything else (NOT_FOUND, UNAUTHORISED,
+  // MALFORMED_RESPONSE, UNSUPPORTED_SECURITY, INSUFFICIENT_EVIDENCE, or any
+  // plain Error) is information, not an outage, and must NOT be routed
+  // around. Data-quality states (PARTIAL_DATA, STALE_DATA, provisional
+  // bars) never reach here at all â€” they are successful results, not throws.
+  const APPROVED_FALLBACK_CODES=['PROVIDER_UNAVAILABLE','RATE_LIMITED','SERVER_MISCONFIGURED'];
+  let primaryFailureCode=null;
   if(useWarV2){
     try{
       const [{buildWarInput},{getProvider}]=await Promise.all([
         import('../src/technicals/buildWarInput.js'),
         import('../src/getProvider.js')
       ]);
-      const series=await getProvider().getDailySeries(ticker);
-      const w=buildWarInput(series);
-      if(w.dataStatus==='UNSUPPORTED_SECURITY'||w.dataStatus==='INSUFFICIENT_EVIDENCE')throw new Error(w.dataStatus);
+      const unusable=x=>x.dataStatus==='UNSUPPORTED_SECURITY'||x.dataStatus==='INSUFFICIENT_EVIDENCE';
+      let w=null,warProviderLabel='twelvedata',fallbackReason=null;
+      try{
+        const series=await getProvider().getDailySeries(ticker);
+        w=buildWarInput(series);
+        // A usable-scope failure is a fact about the security, not a
+        // provider outage: it carries no err.code, so it cannot trigger
+        // fallback below.
+        if(unusable(w))throw new Error(w.dataStatus);
+      }catch(primaryErr){
+        const code=primaryErr&&primaryErr.code;
+        if(!APPROVED_FALLBACK_CODES.includes(code))throw primaryErr;
+        // Remember why the PRIMARY failed. If the fallback also fails, the
+        // outer handler must still report the original cause rather than
+        // only the fallback's error, which would hide the real outage.
+        primaryFailureCode=code;
+        // Transparent fallback: a DIFFERENT provider feeding the SAME
+        // pipeline. Never the legacy V1 inline calculations.
+        const {YahooProvider}=await import('../src/providers/YahooProvider.js');
+        const fallbackSeries=await new YahooProvider().getDailySeries(ticker);
+        const fw=buildWarInput(fallbackSeries);
+        if(unusable(fw))throw new Error(fw.dataStatus);
+        w=fw;warProviderLabel='yahoo-fallback';fallbackReason=code;
+      }
       warFactsV2=w;
       ws=0;we=[];
       const ma=w.movingAverages||{};
@@ -62,8 +91,12 @@ module.exports=async function(req,res){
       // Volume stays UNSCORED (as in v1) and is omitted entirely when the
       // bar is still forming, per the provisional-bar policy.
       if(w.volume?.vsAveragePct!=null)we.push(`Latest volume ${(1+w.volume.vsAveragePct/100).toFixed(2)}Ã— recent average`);
-      warMeta={engine:'v2',provider:w.source?.provider||null,simulated:w.source?.simulated??null,dataStatus:w.dataStatus,latestDataTimestamp:w.latestDataTimestamp||null,latestBarIsProvisional:w.latestBarIsProvisional??null,candlesUsed:w.dataPointsUsed??null,calculationVersion:w.debug?.calculationVersion||null};
-      warLimits=[`Technical evidence from ${w.source?.provider||'provider'} (War engine v2).`];
+      warMeta={engine:'v2',provider:warProviderLabel,simulated:w.source?.simulated??null,dataStatus:w.dataStatus,latestDataTimestamp:w.latestDataTimestamp||null,latestBarIsProvisional:w.latestBarIsProvisional??null,candlesUsed:w.dataPointsUsed??null,calculationVersion:w.debug?.calculationVersion||null};
+      if(fallbackReason){warMeta.fallbackFrom='twelvedata';warMeta.fallbackReason=fallbackReason}
+      warLimits=[`Technical evidence from ${warProviderLabel} (War engine v2).`];
+      // The frontend renders limits but not dataSource, so this line is the
+      // only place a user can see that a substitution happened.
+      if(fallbackReason)warLimits.push('Primary market-data provider unavailable; technical analysis used Yahoo fallback data.');
       if(w.latestBarIsProvisional)warLimits.push('Latest bar is still forming â€” volume comparison withheld until the session settles.');
       if(w.dataStatus!=='COMPLETE')warLimits.push(`Data status: ${w.dataStatus}.`);
     }catch(err){
@@ -74,7 +107,11 @@ module.exports=async function(req,res){
       warFactsV2=null;
       ws=0;we=['Technical data unavailable from the primary provider on this run.'];
       warConfidenceOverride=50;
-      warMeta={engine:'v2',provider:'twelvedata',dataStatus:'DATA_UNAVAILABLE',error:String(err&&err.code||err&&err.message||'UNKNOWN')};
+      const thrownCode=String(err&&err.code||err&&err.message||'UNKNOWN');
+      // If a fallback was attempted, `error` keeps the PRIMARY cause and the
+      // fallback's own failure is reported alongside it.
+      warMeta={engine:'v2',provider:'twelvedata',dataStatus:'DATA_UNAVAILABLE',error:primaryFailureCode||thrownCode};
+      if(primaryFailureCode){warMeta.fallbackAttempted=true;warMeta.fallbackError=thrownCode}
       warLimits=['War could not obtain technical evidence on this run; Council is judging without it.'];
     }
   }
