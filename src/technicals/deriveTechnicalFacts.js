@@ -38,7 +38,7 @@ export function deriveTechnicalFacts(series, { now = new Date() } = {}) {
   // whole panel a day stale. Only the volume comparison is invalidated by
   // a part-day bar, because it alone measures an accumulating total
   // against completed-day baselines. See utils/marketSession.js.
-  const latestBarIsProvisional = isProvisionalBar(latestPoint, series.source?.providerMeta, now);
+  const latestBarIsProvisional = isProvisionalBar(latestPoint, series.source, now);
 
   const volume = latestBarIsProvisional
     ? {
