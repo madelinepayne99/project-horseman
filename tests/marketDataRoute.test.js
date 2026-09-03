@@ -58,7 +58,7 @@ test("route: a successful provider call returns 200 with a warInput object", asy
       ticker: "AAPL",
       companyName: "Apple Inc.",
       points,
-      source: { provider: "twelvedata", simulated: false, fetchedAt: new Date().toISOString(), providerMeta: { exchange: "NASDAQ", country: "United States" } },
+      source: { provider: "twelvedata", simulated: false, fetchedAt: new Date().toISOString(), exchange: "NASDAQ", country: "United States", exchangeTimezone: "America/New_York", providerMeta: { exchange: "NASDAQ", country: "United States" } },
     }),
   });
   const handler = createMarketDataHandler(getProvider);
