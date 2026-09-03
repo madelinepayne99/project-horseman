@@ -25,20 +25,24 @@ module.exports=async function(req,res){
   const last=closes.at(-1),s20=sma(closes,20),s50=sma(closes,50),s200=sma(closes,200),r14=rsi(closes),ret20=(last/closes.at(-21)-1)*100,vr=vols.length>21?vols.at(-1)/avg(vols.slice(-21,-1)):null;
   const ch20=pctChanges(closes,20),realizedVol=stdev(ch20),absMoveAvg=avg(ch20.map(Math.abs)),lastMove=closes.length>1?(last/closes.at(-2)-1)*100:0;
   let ws=0,we=[];for(const [label,v] of [['20-day',s20],['50-day',s50],['200-day',s200]])if(v){ws+=last>v?1:-1;we.push(`Price ${last>v?'above':'below'} ${label} average (${v.toFixed(2)})`)}ws+=ret20>3?1:ret20<-3?-1:0;we.push(`20-session change ${ret20.toFixed(1)}%`);if(r14){ws+=r14>70?-1:r14<30?1:0;we.push(`RSI ${r14.toFixed(1)}`)}if(vr)we.push(`Latest volume ${vr.toFixed(2)}Ã— recent average`);
-  // --- WAR ENGINE V2 (opt-in via ?warEngine=v2) -------------------------
-  // Rebuilds War's FACTS from the validated Twelve Data pipeline while
-  // reusing the EXACT scoring rules above, so a side-by-side comparison
-  // isolates the data source as the only variable. War's reasoning is
-  // deliberately not redesigned here. Default remains v1 until approved.
-  // Only War is affected: Conquest still uses Yahoo's volume ratio (vr)
-  // and Death still uses Yahoo's r14/ret20 â€” both intentionally untouched.
+  // --- WAR ENGINE SELECTION ---------------------------------------------
+  // V2 (validated Twelve Data pipeline) is the DEFAULT engine.
+  // Only an explicit ?warEngine=v1 selects the legacy Yahoo-derived War;
+  // absent, blank, "v2" and any unrecognised value all resolve to V2, so a
+  // typo can never silently serve the legacy engine. Case and surrounding
+  // whitespace are normalised, so "V1" and " v1 " both select legacy.
+  //
+  // V2 rebuilds War's FACTS from the validated pipeline while reusing the
+  // EXACT scoring rules above; War's reasoning is not redesigned here.
+  // Conquest still uses Yahoo's volume ratio (vr), realizedVol and
+  // absMoveAvg â€” all intentionally untouched.
   let warMeta=null,warLimits=['Yahoo market data can be delayed.'],warConfidenceOverride=null;
-  // M2: the authoritative technical facts object from the V2 pipeline.
-  // Death consumes THIS (shared facts), never War's evidence strings, so
-  // War interprets and Death cross-examines the same underlying numbers.
-  let warFactsV2=null,warV2Requested=false;
-  if(String(req.query?.warEngine||'').trim().toLowerCase()==='v2'){
-    warV2Requested=true;
+  // M2/M3/M4: the authoritative technical facts object from the V2
+  // pipeline. Death and Conquest consume THIS (shared facts), never War's
+  // evidence strings, so War interprets and they cross-examine the same
+  // underlying numbers.
+  let warFactsV2=null,useWarV2=String(req.query?.warEngine||'').trim().toLowerCase()!=='v1';
+  if(useWarV2){
     try{
       const [{buildWarInput},{getProvider}]=await Promise.all([
         import('../src/technicals/buildWarInput.js'),
@@ -97,7 +101,7 @@ module.exports=async function(req,res){
   // Crowding's technical inputs follow the same rule: authoritative under
   // V2, legacy Yahoo under V1, never a silent mix. Thresholds unchanged.
   let conquestRsi=r14,conquestRet20=ret20,conquestCrowdMissing=false;
-  if(warV2Requested){
+  if(useWarV2){
     conquestLastMove=warFactsV2&&warFactsV2.percentChange&&warFactsV2.percentChange.oneDay!=null?warFactsV2.percentChange.oneDay:null;
     conquestMoveMissing=(conquestLastMove==null);
     conquestRsi=warFactsV2&&warFactsV2.rsi14!=null?warFactsV2.rsi14:null;
@@ -143,7 +147,7 @@ module.exports=async function(req,res){
   // are missing, they are treated as missing rather than substituted.
   // Thresholds are NOT recalibrated in this task (>75 / >15 unchanged).
   let deathRsi=r14,deathRet20=ret20,deathTechMissing=false;
-  if(warV2Requested){
+  if(useWarV2){
     deathRsi=warFactsV2&&warFactsV2.rsi14!=null?warFactsV2.rsi14:null;
     deathRet20=warFactsV2&&warFactsV2.percentChange&&warFactsV2.percentChange.twentyDay!=null?warFactsV2.percentChange.twentyDay:null;
     deathTechMissing=(deathRsi==null||deathRet20==null);
