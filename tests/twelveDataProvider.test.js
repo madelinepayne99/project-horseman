@@ -20,7 +20,7 @@ function fakeResponse({ status, jsonBody, textBody }) {
 test("TwelveDataProvider: a non-JSON 401/403 (e.g. a network/proxy block) is PROVIDER_UNAVAILABLE, never UNAUTHORISED", async () => {
   // This is the exact bug found via live debugging: this sandbox's own
   // egress proxy returns a 403 with a plain-text body when a host isn't
-  // allowlisted — that must never be reported to the user as "Twelve Data
+  // allowlisted â€” that must never be reported to the user as "Twelve Data
   // rejected the API key", because Twelve Data never saw the request.
   await withMockFetch(
     () => fakeResponse({ status: 403, textBody: "Host not in allowlist: api.twelvedata.com. Add this host to your network egress settings to allow access." }),
@@ -132,4 +132,61 @@ test("TwelveDataProvider: a network-level failure (fetch throws) is PROVIDER_UNA
   } finally {
     global.fetch = original;
   }
+});
+
+// ---------------------------------------------------------------------
+// Canonical metadata normalisation: vendor field names must be translated
+// at the adapter boundary so nothing downstream depends on them.
+// ---------------------------------------------------------------------
+
+test("TwelveDataProvider: vendor metadata is translated into canonical exchange/country/exchangeTimezone", async () => {
+  await withMockFetch(
+    () => fakeResponse({
+      status: 200,
+      jsonBody: {
+        status: "ok",
+        meta: {
+          symbol: "AAPL", currency: "USD", exchange: "NASDAQ", mic_code: "XNGS",
+          country: "United States", exchange_timezone: "America/New_York",
+        },
+        values: [
+          { datetime: "2026-01-02", open: "101", high: "102", low: "100", close: "101.5", volume: "1000" },
+          { datetime: "2026-01-01", open: "100", high: "101", low: "99", close: "100.5", volume: "1100" },
+        ],
+      },
+    }),
+    async () => {
+      const provider = new TwelveDataProvider({ apiKey: "k", baseUrl: "https://example.invalid" });
+      const series = await provider.getDailySeries("AAPL");
+
+      assert.equal(series.source.exchange, "NASDAQ");
+      assert.equal(series.source.country, "United States");
+      // The vendor spells this "exchange_timezone"; downstream only ever
+      // sees the canonical name.
+      assert.equal(series.source.exchangeTimezone, "America/New_York");
+      // providerMeta is still kept verbatim for debugging/provenance.
+      assert.equal(series.source.providerMeta.exchange_timezone, "America/New_York");
+      assert.equal(series.source.providerMeta.mic_code, "XNGS");
+    }
+  );
+});
+
+test("TwelveDataProvider: absent vendor metadata yields null canonical fields, not undefined or empty strings", async () => {
+  await withMockFetch(
+    () => fakeResponse({
+      status: 200,
+      jsonBody: {
+        status: "ok",
+        meta: { symbol: "AAPL", exchange: "   " },
+        values: [{ datetime: "2026-01-01", open: "100", high: "101", low: "99", close: "100.5", volume: "1100" }],
+      },
+    }),
+    async () => {
+      const provider = new TwelveDataProvider({ apiKey: "k", baseUrl: "https://example.invalid" });
+      const series = await provider.getDailySeries("AAPL");
+      assert.equal(series.source.exchange, null, "a whitespace-only value must normalise to null");
+      assert.equal(series.source.country, null);
+      assert.equal(series.source.exchangeTimezone, null);
+    }
+  );
 });
