@@ -64,7 +64,20 @@ const OPINION_PATTERNS = /\bwhy\b|\bshould you\b|\bis .{0,20}\ba (buy|sell)\b|\b
 const ANALYST_OPINION_PATTERNS = /\banalysts?\b|\bbroker(age)?\b|\bprice target\b|\brating\b|\bupgrades?\b|\bdowngrades?\b|\b(bofa|morgan stanley|goldman|jefferies|wedbush|barclays)\b/i;
 const FORECAST_PATTERNS = /\bforecasts?\b|\bexpects?\b|\boutlook for\b|\bproject(s|ed|ion)\b|\bwill likely\b|\bset to\b|\bpoised to\b|\bmay \b|\bmight \b|\bpredict/i;
 // Concrete corporate acts, stated in the past/announcement tense.
-const REPORTED_PATTERNS = /\bannounce(s|d)?\b|\breports?\b|\bposted?\b|\blaunche[sd]\b|\bunveil(s|ed)\b|\bfiles?\b|\bcompleted?\b|\bacquire[sd]\b|\bappoints?\b|\bnames?\b|\bapprove[sd]\b|\bdeclares?\b|\bissued?\b|\braises? (its )?(dividend|guidance|outlook|forecast)|\b(cuts?|lowers?|slashes|trims?) (its )?(dividend|guidance|outlook|forecast)|\bbeats?\b|\bmisses\b|\btops\b|\bresigns?\b|\bsteps down\b|\brecalls?\b|\bsuspends?\b|\bhalts?\b|\bscraps?\b|\beliminates?\b|\binitiates?\b|\bprices?\b|\bincreases?\b/i;
+//
+// TIER 2 BREADTH: the original list was a narrow verb whitelist, so plainly
+// factual constructions ("deliveries rise", "wins approval", "faces class
+// action", "to acquire") fell through to UNCLASSIFIED — which hard-blocks
+// directional assessment regardless of how explicit the headline is.
+// Common financial-reporting verbs are therefore included below.
+//
+// This widens what counts as REPORTED, NOT what counts as directional.
+// REPORTED_EVENT means "framed as reporting something that happened", never
+// "good" or "bad". Direction still requires one of the explicit
+// DIRECTIONAL_RULES, so nothing added here can by itself create a bullish
+// or bearish reading. Rumour / opinion / analyst-opinion / forecast
+// precedence is unchanged and still checked first.
+const REPORTED_PATTERNS = /\bannounce(s|d)?\b|\breports?\b|\bposted?\b|\blaunche[sd]\b|\bunveil(s|ed)\b|\bfiles?\b|\bcompleted?\b|\bacquire[sd]\b|\bappoints?\b|\bnames?\b|\bapprove[sd]\b|\bdeclares?\b|\bissued?\b|\braises? (its )?(dividend|guidance|outlook|forecast)|\b(cuts?|lowers?|slashes|trims?) (its )?(dividend|guidance|outlook|forecast)|\bbeats?\b|\bmisses\b|\btops\b|\bresigns?\b|\bsteps down\b|\brecalls?\b|\bsuspends?\b|\bhalts?\b|\bscraps?\b|\beliminates?\b|\binitiates?\b|\bprices?\b|\bincreases?\b|\bris(e|es|ing)\b|\brose\b|\bfalls?\b|\bfell\b|\bjumps?\b|\bjumped\b|\bdrops?\b|\bdropped\b|\bclimbs?\b|\bclimbed\b|\bhits?\b|\bwins?\b|\bwon\b|\bfaces?\b|\bfaced\b|\bagrees to\b|\bto acquire\b|\breceives?\b|\bdelivers?\b|\bgrants?\b|\bdenies\b|\bsued\b/i;
 
 export function classifyEvidenceType(headline) {
   const h = String(headline || "");
@@ -94,10 +107,16 @@ const CATEGORY_RULES = [
   [EventCategory.CAPITAL_RETURN, /\bdividend\b|\bbuyback\b|\brepurchase\b|\bshare return\b/i],
   [EventCategory.M_AND_A, /\bacquir|\bmerger\b|\btakeover\b|\bbuyout\b|\bto buy\b|\bstake in\b|\bdivest|\bspin-?off\b/i],
   [EventCategory.FINANCING, /\bshare (sale|offering)\b|\bequity offering\b|\bconvertible\b|\bbond sale\b|\bdebt offering\b|\bdilut|\braises \$\d/i],
-  [EventCategory.REGULATORY, /\bregulat|\bantitrust\b|\bsec\b|\bftc\b|\bdoj\b|\bfda\b|\bprobe\b|\binvestigation\b|\bfine[sd]?\b|\bsanction/i],
-  [EventCategory.LEGAL, /\blawsuit\b|\bsues?\b|\bcourt\b|\bjudge\b|\bsettlement\b|\blitigation\b|\bverdict\b|\bappeal\b|\bpatent (suit|dispute)\b/i],
-  [EventCategory.MANAGEMENT, /\bceo\b|\bcfo\b|\bchairman\b|\bresigns?\b|\bsteps down\b|\bappoints?\b|\bsuccessor\b|\bexecutive\b/i],
-  [EventCategory.OPERATIONAL, /\bproduction\b|\bsupply chain\b|\brecalls?\b|\blayoffs?\b|\bplant\b|\bfactory\b|\boutage\b|\bstrike\b|\bshortage\b/i],
+  // TIER 1: an approval/clearance/ban granted or refused by an authority.
+  // Deliberately requires a granting/refusing verb near the noun, so that
+  // e.g. "pay package approved" (a shareholder vote) is not miscategorised
+  // as a regulatory decision.
+  [EventCategory.REGULATORY, /\bregulat|\bantitrust\b|\bsec\b|\bftc\b|\bdoj\b|\bfda\b|\bprobe\b|\binvestigation\b|\bfine[sd]?\b|\bsanction|\b(wins?|won|receives?|granted|denied|refused|revoked)\b.{0,25}\b(approval|clearance|licen[cs]e|authoris\w+|authoriz\w+|permit)\b|\brecall order\b|\bbans?\b|\bbanned\b/i],
+  [EventCategory.LEGAL, /\blawsuit\b|\bsues?\b|\bsued\b|\bclass action\b|\blegal action\b|\bsuits?\b|\bcourt\b|\bjudge\b|\bsettlement\b|\blitigation\b|\bverdict\b|\bappeal\b|\bpatent (suit|dispute)\b/i],
+  // TIER 1: officer titles are frequently spelled out rather than initialised.
+  [EventCategory.MANAGEMENT, /\bceo\b|\bcfo\b|\bcoo\b|\bcto\b|\bchief (executive|financial|operating|technology|marketing|legal|accounting) officer\b|\bchairman\b|\bresigns?\b|\bsteps down\b|\bappoints?\b|\bsuccessor\b|\bexecutive\b|\b(names?|hires?|promotes?)\b.{0,30}\b(officer|chief|head of|president)\b/i],
+  // TIER 1: volume/throughput metrics are operational, not financial results.
+  [EventCategory.OPERATIONAL, /\bproduction\b|\bsupply chain\b|\brecalls?\b|\blayoffs?\b|\bplant\b|\bfactory\b|\boutage\b|\bstrike\b|\bshortage\b|\bdeliveries\b|\bshipments\b|\bunits (delivered|produced|shipped)\b|\boutput\b/i],
   [EventCategory.PRODUCT, /\blaunche[sd]\b|\bunveil|\breleases?\b|\bintroduces?\b|\bnew (product|model|device|chip|phone|iphone)\b|\bevent\b/i],
 ];
 

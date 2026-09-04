@@ -180,38 +180,91 @@ export const MATERIAL_SURPRISE = 3;    // ±3% EPS surprise — beyond routine r
  * NEUTRAL, because a genuinely mixed picture with a clear net lean is
  * still a lean.
  */
+/**
+ * Detects evidence that materially disagrees with itself.
+ *
+ * ---------------------------------------------------------------------
+ * EVERY FLAG NAMES THE MEASURE IT REFERS TO
+ * ---------------------------------------------------------------------
+ * A previous version reduced both growth figures into generic
+ * `growthPositive` / `growthNegative` booleans with OR. A company with
+ * revenue up and earnings down satisfied BOTH at once, so the live TSLA
+ * analysis (+25.5% revenue, -3.0% earnings) emitted, side by side:
+ *
+ *     "Growth is positive, but 2 of the last 4 quarters missed..."
+ *     "Growth is negative, but 2 of the last 4 quarters beat..."
+ *
+ * — two contradictory statements, neither identifying which measure it
+ * meant, and a third flag on top, tripling the confidence penalty for
+ * substantially one phenomenon.
+ *
+ * Revenue growth and earnings growth are now kept as distinct, named
+ * dimensions, and the surprise comparison runs against exactly ONE
+ * measure, so contradictory pairs are impossible by construction.
+ *
+ * DIMENSIONAL APPROPRIATENESS: an EPS surprise is an EARNINGS measure, so
+ * it is compared against earnings growth whenever earnings growth is
+ * available. Revenue growth is used only as a fallback when earnings
+ * growth is missing, and the flag says so explicitly rather than silently
+ * treating revenue as a proxy for earnings.
+ */
 export function detectDisagreement(fundamentals, earnings) {
   const conflicts = [];
   const f = fundamentals && fundamentals.availability === EvidenceAvailability.PRESENT ? fundamentals.facts : null;
 
   const rev = f ? factValue(f.revenueGrowthYoY) : null;
   const earn = f ? factValue(f.earningsGrowthYoY) : null;
+  const pct = v => `${(v * 100).toFixed(1)}%`;
 
+  // --- 1. The two measures diverging from each other ------------------
   if (rev !== null && earn !== null) {
     if (rev > MATERIAL_GROWTH && earn < 0) {
-      conflicts.push({ type: "REVENUE_UP_EARNINGS_DOWN",
-        detail: `Revenue grew ${(rev * 100).toFixed(1)}% year-on-year while earnings fell ${(earn * 100).toFixed(1)}%.` });
+      conflicts.push({
+        type: "REVENUE_UP_EARNINGS_DOWN",
+        measures: ["revenueGrowthYoY", "earningsGrowthYoY"],
+        detail: `Revenue grew ${pct(rev)} year-on-year while earnings fell ${pct(earn)}.`,
+      });
     }
     if (rev < 0 && earn > MATERIAL_GROWTH) {
-      conflicts.push({ type: "REVENUE_DOWN_EARNINGS_UP",
-        detail: `Revenue fell ${(rev * 100).toFixed(1)}% year-on-year while earnings grew ${(earn * 100).toFixed(1)}%.` });
+      conflicts.push({
+        type: "REVENUE_DOWN_EARNINGS_UP",
+        measures: ["revenueGrowthYoY", "earningsGrowthYoY"],
+        detail: `Revenue fell ${pct(rev)} year-on-year while earnings grew ${pct(earn)}.`,
+      });
     }
   }
 
+  // --- 2. One named growth measure against reported execution ---------
   const surprises = (earnings && earnings.availability === EvidenceAvailability.PRESENT ? earnings.periods : [])
     .filter(p => isPresent(p.surprisePct)).map(p => factValue(p.surprisePct));
   const beats = surprises.filter(s => s > MATERIAL_SURPRISE).length;
   const misses = surprises.filter(s => s < -MATERIAL_SURPRISE).length;
-  const growthPositive = (rev !== null && rev > MATERIAL_GROWTH) || (earn !== null && earn > MATERIAL_GROWTH);
-  const growthNegative = (rev !== null && rev < 0) || (earn !== null && earn < 0);
 
-  if (growthPositive && misses >= 2) {
-    conflicts.push({ type: "GROWTH_UP_SURPRISES_DOWN",
-      detail: `Growth is positive, but ${misses} of the last ${surprises.length} reported quarters missed expectations.` });
-  }
-  if (growthNegative && beats >= 2) {
-    conflicts.push({ type: "GROWTH_DOWN_SURPRISES_UP",
-      detail: `Growth is negative, but ${beats} of the last ${surprises.length} reported quarters beat expectations.` });
+  // Exactly one measure is chosen, so "up" and "down" flags are mutually
+  // exclusive and can never both fire.
+  const usingEarnings = earn !== null;
+  const measureValue = usingEarnings ? earn : rev;
+  const measureKey = usingEarnings ? "earningsGrowthYoY" : "revenueGrowthYoY";
+  const measureName = usingEarnings ? "Earnings growth" : "Revenue growth";
+  const prefix = usingEarnings ? "EARNINGS_GROWTH" : "REVENUE_GROWTH";
+  const proxyNote = usingEarnings
+    ? ""
+    : " (earnings growth was unavailable, so revenue growth is used here and is a weaker comparison for an earnings surprise)";
+
+  if (measureValue !== null && surprises.length) {
+    if (measureValue > MATERIAL_GROWTH && misses >= 2) {
+      conflicts.push({
+        type: `${prefix}_UP_SURPRISES_DOWN`,
+        measures: [measureKey],
+        detail: `${measureName} is positive at ${pct(measureValue)} year-on-year, but ${misses} of the last ${surprises.length} reported quarters missed expectations${proxyNote}.`,
+      });
+    } else if (measureValue < 0 && beats >= 2) {
+      conflicts.push({
+        type: `${prefix}_DOWN_SURPRISES_UP`,
+        measures: [measureKey],
+        detail: `${measureName} is negative at ${pct(measureValue)} year-on-year, but ${beats} of the last ${surprises.length} reported quarters beat expectations${proxyNote}.`,
+      });
+    }
   }
 
   return Object.freeze(conflicts);

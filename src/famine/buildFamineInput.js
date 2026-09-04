@@ -67,7 +67,11 @@ export function buildFamineInput({ ticker, fundamentals, earnings, news = null, 
   const freshness = assessFreshness(fundamentals, earnings, now);
   // Event evidence is assessed separately and kept separately, so
   // fundamentals and current events remain independently inspectable.
-  const newsEvidence = assessNewsEvidence(news, now);
+  // The company name lets the relevance layer recognise stories that name
+  // the company without its ticker. Taken from fundamentals when available.
+  const companyNameForNews = fundamentals.availability === EvidenceAvailability.PRESENT
+    ? fundamentals.companyName : null;
+  const newsEvidence = assessNewsEvidence(news, now, { companyName: companyNameForNews });
   const completeness = assessCompleteness(fundamentals, earnings, news);
   const disagreement = detectDisagreement(fundamentals, earnings);
   const { status, reasons } = decideDataStatus({ completeness, freshness, fundamentals, earnings });
