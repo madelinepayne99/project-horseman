@@ -170,14 +170,15 @@ test("revenue up with earnings down is recorded as disagreement and reduces conf
 
 test("positive growth with repeated negative surprises is flagged, and does not force NEUTRAL", () => {
   const r = assess(fundamentals({ revenueGrowthYoY: "0.20", earningsGrowthYoY: "0.18" }), earnings({ surprises: [-9, -7, -6, -5] }));
-  assert.ok(r.disagreement.some(c => c.type === "GROWTH_UP_SURPRISES_DOWN"));
+  // Renamed by design: the generic type never said which measure it meant.
+  assert.ok(r.disagreement.some(c => c.type === "EARNINGS_GROWTH_UP_SURPRISES_DOWN"));
   assert.equal(r.direction, FamineDirection.BULLISH, "a net lean survives disagreement");
   assert.ok(r.strongestOpposing.length >= 1, "the opposing evidence is preserved, not discarded");
 });
 
 test("negative growth with repeated positive surprises is flagged", () => {
   const r = assess(fundamentals({ revenueGrowthYoY: "-0.14", earningsGrowthYoY: "-0.10" }), earnings({ surprises: [9, 8, 7, 6] }));
-  assert.ok(r.disagreement.some(c => c.type === "GROWTH_DOWN_SURPRISES_UP"));
+  assert.ok(r.disagreement.some(c => c.type === "EARNINGS_GROWTH_DOWN_SURPRISES_UP"));
   assert.equal(r.direction, FamineDirection.BEARISH);
   assert.ok(r.strongestOpposing.length >= 1);
 });
@@ -244,4 +245,105 @@ test("the direction threshold is explicit and behaves at its boundary", () => {
   const r = assess(fundamentals({ revenueGrowthYoY: "0.20", earningsGrowthYoY: "0.01" }), earnings({ surprises: [0.5, 0.2, 0.1, 0.3] }));
   assert.ok(r.lean >= DIRECTION_THRESHOLD);
   assert.equal(r.direction, FamineDirection.BULLISH);
+});
+
+// ---------------------------------------------------------------------
+// LIVE-EVIDENCE FIX 1 — disagreement must name its measure and must never
+// assert contradictory generic growth states. Regression fixture is the
+// real TSLA analysis: revenue +25.5%, earnings -3.0%, mixed surprises.
+// ---------------------------------------------------------------------
+
+function tslaLive(surprises = [7.4, -6.1, 5.2, -4.8]) {
+  return {
+    f: fundamentals({ revenueGrowthYoY: "0.255", earningsGrowthYoY: "-0.03", profitMargin: "0.05", eps: "2.1", peRatio: "80" }),
+    e: earnings({ surprises }),
+  };
+}
+
+test("TSLA regression: no contradictory generic growth wording is ever emitted", () => {
+  const { f, e } = tslaLive();
+  const r = assess(f, e);
+  const details = r.disagreement.map(d => d.detail);
+
+  // The exact defect: these two statements previously appeared together.
+  assert.ok(!details.some(d => /^Growth is positive/.test(d)),
+    "no unqualified 'Growth is positive' — it never said which measure");
+  assert.ok(!details.some(d => /^Growth is negative/.test(d)));
+  const positives = details.filter(d => /is positive/.test(d));
+  const negatives = details.filter(d => /is negative/.test(d));
+  assert.ok(!(positives.length && negatives.length),
+    "a single analysis must not simultaneously claim growth is positive and negative");
+});
+
+test("TSLA regression: every disagreement names the measure it refers to", () => {
+  const { f, e } = tslaLive();
+  const r = assess(f, e);
+  assert.ok(r.disagreement.length > 0);
+  for (const d of r.disagreement) {
+    assert.ok(Array.isArray(d.measures) && d.measures.length,
+      `${d.type} must declare which measures it used`);
+    // Understandable without knowing the implementation.
+    assert.ok(/Revenue|Earnings/.test(d.detail), `${d.type} detail must name the measure: ${d.detail}`);
+  }
+});
+
+test("TSLA regression: revenue/earnings divergence remains visible", () => {
+  const { f, e } = tslaLive();
+  const r = assess(f, e);
+  const div = r.disagreement.find(d => d.type === "REVENUE_UP_EARNINGS_DOWN");
+  assert.ok(div, "genuine divergence between the two measures must still be reported");
+  assert.match(div.detail, /Revenue grew 25\.5%.*earnings fell -3\.0%/);
+});
+
+test("TSLA regression: the surprise comparison uses EARNINGS growth, the dimensionally matching measure", () => {
+  const { f, e } = tslaLive();
+  const r = assess(f, e);
+  const surprise = r.disagreement.find(d => /SURPRISES/.test(d.type));
+  assert.ok(surprise);
+  assert.equal(surprise.type, "EARNINGS_GROWTH_DOWN_SURPRISES_UP");
+  assert.deepEqual(surprise.measures, ["earningsGrowthYoY"]);
+  assert.match(surprise.detail, /Earnings growth is negative at -3\.0%/);
+});
+
+test("TSLA regression: the same phenomenon is not triple-penalised", () => {
+  const { f, e } = tslaLive();
+  const r = assess(f, e);
+  // Previously three flags fired (penalty 10). Now two genuinely distinct
+  // observations remain: the measures diverge, and earnings fell while
+  // beating expectations.
+  assert.equal(r.disagreement.length, 2);
+  const surpriseFlags = r.disagreement.filter(d => /SURPRISES/.test(d.type));
+  assert.equal(surpriseFlags.length, 1, "at most one surprise flag — up and down are mutually exclusive");
+});
+
+test("up-and-down surprise flags are mutually exclusive by construction", () => {
+  // Earnings growth strongly positive with repeated misses.
+  const up = assess(fundamentals({ revenueGrowthYoY: "0.25", earningsGrowthYoY: "0.30" }), earnings({ surprises: [-9, -7, 5, 4] }));
+  const upFlags = up.disagreement.filter(d => /SURPRISES/.test(d.type));
+  assert.equal(upFlags.length, 1);
+  assert.equal(upFlags[0].type, "EARNINGS_GROWTH_UP_SURPRISES_DOWN");
+  assert.match(upFlags[0].detail, /Earnings growth is positive at 30\.0%/);
+});
+
+test("revenue growth is used for the surprise comparison ONLY when earnings growth is missing, and says so", () => {
+  const r = assess(
+    fundamentals({ revenueGrowthYoY: "-0.14", earningsGrowthYoY: "None" }),
+    earnings({ surprises: [9, 8, 7, 6] })
+  );
+  const flag = r.disagreement.find(d => /SURPRISES/.test(d.type));
+  assert.ok(flag);
+  assert.equal(flag.type, "REVENUE_GROWTH_DOWN_SURPRISES_UP");
+  assert.deepEqual(flag.measures, ["revenueGrowthYoY"]);
+  assert.match(flag.detail, /earnings growth was unavailable/i,
+    "the weaker proxy must be disclosed, not silently substituted");
+});
+
+test("disagreement still lowers confidence, and by less than the old triple count", () => {
+  const { f, e } = tslaLive();
+  const conflicted = assess(f, e);
+  const clean = assess(
+    fundamentals({ revenueGrowthYoY: "0.255", earningsGrowthYoY: "0.20" }),
+    earnings({ surprises: [7.4, 5.2, 4.1, 3.9] })
+  );
+  assert.ok(conflicted.confidence < clean.confidence, "genuine disagreement must still cost confidence");
 });
