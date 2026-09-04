@@ -12,13 +12,118 @@ async function fetchJson(url){const c=new AbortController(),id=setTimeout(()=>c.
 async function alpha(fn,t){const key=String(process.env.ALPHA_VANTAGE_API_KEY||'').trim();if(!key)throw new Error('Alpha Vantage key not configured');const d=await fetchJson(`https://www.alphavantage.co/query?function=${fn}&symbol=${encodeURIComponent(t)}&apikey=${encodeURIComponent(key)}`);if(d.Note||d.Information||d['Error Message'])throw new Error(d.Note||d.Information||d['Error Message']);return d}
 function ctype(s=''){s=s.toLowerCase();if(/rumou?r|reportedly|unconfirmed|speculation/.test(s))return'RUMOUR';if(/forecast|expects?|could|may |might|target|outlook|predict/.test(s))return'PREDICTION';if(/why |should |buy |sell |undervalued|overvalued|opinion/.test(s))return'OPINION';return'REPORTED CLAIM'}
 function evidence(claim,type,source,reliability,supports='NEUTRAL',published=null,note=''){return{claim,type,source,reliability,reliabilityScore:{'VERY HIGH':90,HIGH:78,MEDIUM:60,LOW:38}[reliability]||50,supports,published,freshness:published?new Date(published).toLocaleDateString('en-GB'):'Not dated',confirmed:false,confirmation:'Not independently confirmed on this run.',possibleBias:note||'Check the original source for context.'}}
+/* ---------------------------------------------------------------------
+ * FAMINE V2 â€” opt-in wiring (?famineEngine=v2)
+ *
+ * Built ONCE at module scope. That matters: MemoryCacheStore lives inside
+ * CachedFundamentalsProvider, so it only survives between requests if the
+ * provider itself survives. Constructing it per-request would give a cache
+ * that is empty every single time.
+ *
+ * The cached decorator wraps AlphaVantageProvider deliberately â€” wiring the
+ * raw provider here would silently discard the whole caching layer.
+ * ------------------------------------------------------------------- */
+let _famineV2 = null;
+async function getFamineV2(){
+  if (_famineV2) return _famineV2;
+  const [av, cachedMod, newsMod, inputMod, analysisMod] = await Promise.all([
+    import('../src/providers/AlphaVantageProvider.js'),
+    import('../src/providers/CachedFundamentalsProvider.js'),
+    import('../src/providers/YahooNewsProvider.js'),
+    import('../src/famine/buildFamineInput.js'),
+    import('../src/famine/famineAnalysis.js'),
+  ]);
+  const raw = new av.AlphaVantageProvider({ apiKey: String(process.env.ALPHA_VANTAGE_API_KEY||'').trim() || null });
+  raw.providerId = 'alphavantage';
+  _famineV2 = {
+    fundamentals: new cachedMod.CachedFundamentalsProvider({ provider: raw }),
+    news: new newsMod.YahooNewsProvider(),
+    fundamentalsFromError: av.fundamentalsFromError,
+    earningsFromError: av.earningsFromError,
+    newsFromError: newsMod.newsFromError,
+    buildFamineInput: inputMod.buildFamineInput,
+    famineAnalysis: analysisMod.famineAnalysis,
+  };
+  return _famineV2;
+}
+
+/**
+ * Runs Famine V2 and adapts it to the existing Horseman shape.
+ *
+ * NO SILENT LEGACY FALLBACK: every failure below becomes an explicit V2
+ * degraded structure. Legacy Famine is never called from here.
+ */
+async function runFamineV2(ticker){
+  const f = await getFamineV2();
+  const [fundamentals, earningsHistory, news] = await Promise.all([
+    f.fundamentals.getFundamentals(ticker).catch(e => f.fundamentalsFromError(ticker, e)),
+    f.fundamentals.getEarningsHistory(ticker).catch(e => f.earningsFromError(ticker, e)),
+    f.news.getCompanyNews(ticker).catch(e => f.newsFromError(ticker, e)),
+  ]);
+  const input = f.buildFamineInput({ ticker, fundamentals, earnings: earningsHistory, news });
+  return { assessment: f.famineAnalysis(input), fundamentals, earningsHistory, news };
+}
+
+/** Adapts a V2 assessment to the legacy Horseman shape + explicit provenance. */
+function adaptFamineV2({ assessment, fundamentals, earningsHistory, news }){
+  const ev = [];
+  for (const s of assessment.strongestSupporting) ev.push(s.claim);
+  for (const s of assessment.strongestOpposing) ev.push(`Against: ${s.claim}`);
+  for (const c of assessment.materialCatalysts || []) ev.push(`Catalyst: ${c.representative.headline}`);
+  if (!ev.length) ev.push('No sufficient fundamental evidence was obtained on this run.');
+
+  const limits = [...assessment.limitations, ...assessment.uncertainties];
+  const cacheOf = src => src && src.cached !== undefined
+    ? { cached: src.cached, cacheState: src.cacheState || null, cacheAgeSeconds: src.cacheAgeSeconds ?? null, fetchedAt: src.fetchedAt || null }
+    : null;
+
+  return {
+    icon:'ðŸ¥€', name:'FAMINE', label:'COMPANY & NEWS',
+    simple:'Are the company numbers and current news helping or hurting it?',
+    // May be UNKNOWN, and confidence may be null. Neither is fabricated to
+    // make the legacy schema look complete.
+    direction: assessment.direction,
+    confidence: assessment.confidence,
+    checked:['company fundamentals','earnings history','company news/events'],
+    evidence: ev,
+    limits: limits.length ? limits : ['Fundamentals are historical evidence, not a forecast.'],
+    dataSource:{
+      engine:'v2',
+      providers: assessment.source.providers,
+      dataStatus: assessment.dataStatus,
+      statusReasons: assessment.statusReasons,
+      completeness: assessment.completeness,
+      freshness: assessment.freshness,
+      newsAvailability: assessment.newsAvailability,
+      newsFreshness: assessment.newsFreshness,
+      missingEvidence: assessment.missingEvidence,
+      disagreement: assessment.disagreement,
+      strongestSupporting: assessment.strongestSupporting,
+      strongestOpposing: assessment.strongestOpposing,
+      materialCatalysts: (assessment.materialCatalysts||[]).map(c=>({headline:c.representative.headline, publisher:c.representative.publisher, impact:c.classification.directionalImpact, rule:c.classification.directionalRule, reportCount:c.reportCount})),
+      unknownImpactEventCount: (assessment.unknownImpactEvents||[]).length,
+      cache:{ fundamentals: cacheOf(fundamentals.source), earnings: cacheOf(earningsHistory.source) },
+      fundamentalsAvailability: fundamentals.availability,
+      earningsAvailability: earningsHistory.availability,
+    },
+  };
+}
+
 module.exports=async function(req,res){
  try{
   const ticker=String(req.query?.ticker||'').trim().toUpperCase().replace(/[^A-Z0-9.\-]/g,'').slice(0,12);if(!ticker)return res.status(400).json({error:'Enter a ticker first.'});
   const chartP=fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1y&interval=1d`);
   const newsP=fetchJson(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=1&newsCount=10`).catch(()=>({news:[]}));
-  const overviewP=alpha('OVERVIEW',ticker).catch(e=>({__error:e.message}));
-  const earningsP=alpha('EARNINGS',ticker).catch(e=>({__error:e.message}));
+  // Famine V2 is OPT-IN ONLY. Absent, "v1" and any unrecognised value all
+  // keep the current production Famine path â€” deliberately the opposite
+  // posture from War V2, which defaults on.
+  const useFamineV2=String(req.query?.famineEngine||'').trim().toLowerCase()==='v2';
+  // Under V2 the legacy Alpha Vantage calls are skipped: V2 fetches the same
+  // two endpoints through its cached provider, and running both would spend
+  // four of the 25 daily requests per analysis instead of two.
+  const skipped={__error:'not fetched: famineEngine=v2 uses the cached Famine V2 provider'};
+  const overviewP=useFamineV2?Promise.resolve(skipped):alpha('OVERVIEW',ticker).catch(e=>({__error:e.message}));
+  const earningsP=useFamineV2?Promise.resolve(skipped):alpha('EARNINGS',ticker).catch(e=>({__error:e.message}));
   const [chart,newsRaw,overview,earnings]=await Promise.all([chartP,newsP,overviewP,earningsP]);
   const cr=chart?.chart?.result?.[0];if(!cr)return res.status(404).json({error:'Ticker not found or market data unavailable.'});
   const q=cr.indicators?.quote?.[0]||{},closes=(q.close||[]).filter(Number.isFinite),vols=(q.volume||[]).filter(Number.isFinite);if(closes.length<50)return res.status(502).json({error:'Not enough price history returned.'});
@@ -174,8 +279,24 @@ module.exports=async function(req,res){
   if(warConfidenceOverride!=null)war.confidence=warConfidenceOverride;
   if(warMeta)war.dataSource=warMeta;
   const famine={icon:'ðŸ¥€',name:'FAMINE',label:'COMPANY & NEWS',simple:'Are the company numbers and current news helping or hurting it?',direction:dir(fs),confidence:clamp(48+Math.abs(fs)*7+(ovOK?8:0),42,90),checked:['Alpha Vantage fundamentals','earnings history','recent news'],evidence:fe.length?fe:['No fundamental evidence returned.'],limits:fl.length?fl:['Fundamentals are historical evidence, not a forecast.']};
+  // --- Famine V2 substitution (opt-in) --------------------------------
+  // The legacy famine object above is computed but DISCARDED under V2.
+  // V2 is never silently replaced by it: if V2 degrades, the degraded V2
+  // result is what surfaces.
+  let famineOut=famine, famineV2=null;
+  if(useFamineV2){
+    famineV2=await runFamineV2(ticker);
+    famineOut=adaptFamineV2(famineV2);
+  }
+  // ovOK is Death's "structured fundamentals unavailable" input. Under V2 the
+  // legacy overview was never fetched, so it is mapped truthfully from V2's
+  // own availability rather than left falsely false. Compatibility wiring
+  // only â€” Death's rule and threshold are untouched.
+  const ovOKEffective=useFamineV2
+    ? (famineV2.fundamentals.availability==='PRESENT')
+    : ovOK;
   const conquest={icon:'ðŸ‘‘',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:conquestLimits,signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
-  const dirs=[war.direction,famine.direction,conquest.direction],bull=dirs.filter(x=>x==='BULLISH').length,bear=dirs.filter(x=>x==='BEARISH').length,neutral=3-bull-bear,disagree=bull>0&&bear>0;
+  const dirs=[war.direction,famineOut.direction,conquest.direction],bull=dirs.filter(x=>x==='BULLISH').length,bear=dirs.filter(x=>x==='BEARISH').length,neutral=3-bull-bear,disagree=bull>0&&bear>0;
   // --- M2: Death's technical inputs -------------------------------------
   // V1 (default): unchanged â€” Death reads the legacy Yahoo-derived values.
   // V2: Death reads the SAME authoritative facts War interpreted, so the
@@ -189,13 +310,20 @@ module.exports=async function(req,res){
     deathRet20=warFactsV2&&warFactsV2.percentChange&&warFactsV2.percentChange.twentyDay!=null?warFactsV2.percentChange.twentyDay:null;
     deathTechMissing=(deathRsi==null||deathRet20==null);
   }
-  let risk=0,de=[];if(deathRsi!=null&&deathRsi>75){risk++;de.push('RSI is very high')}if(deathRet20!=null&&Math.abs(deathRet20)>15){risk++;de.push('Large recent price move')}if(deathTechMissing){risk++;de.push('Authoritative technical evidence unavailable')}if(disagree){risk+=2;de.push('Horsemen directly disagree')}if(!ovOK){risk++;de.push('Structured fundamentals unavailable')}if(crowding>=3){risk+=2;de.push('Conquest detected high crowding risk')}else if(crowding>=1){risk++;de.push('Conquest detected elevated crowding risk')};
+  let risk=0,de=[];if(deathRsi!=null&&deathRsi>75){risk++;de.push('RSI is very high')}if(deathRet20!=null&&Math.abs(deathRet20)>15){risk++;de.push('Large recent price move')}if(deathTechMissing){risk++;de.push('Authoritative technical evidence unavailable')}if(disagree){risk+=2;de.push('Horsemen directly disagree')}if(!ovOKEffective){risk++;de.push('Structured fundamentals unavailable')}if(crowding>=3){risk+=2;de.push('Conquest detected high crowding risk')}else if(crowding>=1){risk++;de.push('Conquest detected elevated crowding risk')};
   const death={icon:'â˜ ï¸',name:'DEATH',label:'DANGER',simple:'What could go wrong, and is waiting safer?',direction:risk>=4?'BEARISH':risk>=2?'NEUTRAL':'BULLISH',confidence:clamp(58+risk*6,55,88),checked:['stretched price','large recent moves','missing data','Horseman disagreement','Conquest crowding signals'],evidence:de.length?de:['No major connected-data risk flag triggered.'],limits:['Unknown events can still occur.']};
-  let councilConfidence=Math.round(avg([war.confidence,famine.confidence,conquest.confidence])-neutral*8-(disagree?20:0)-risk*4);councilConfidence=clamp(councilConfidence,25,92);
+  // A Horseman that reached no assessment reports confidence null. avg()
+  // would coerce that to 0 and silently drag the Council's confidence down
+  // by a third â€” the exact "missing becomes zero" bug Famine V2 exists to
+  // remove. Nulls are therefore excluded from the average rather than
+  // counted as zero. On the default path no confidence is ever null, so
+  // this is byte-identical to previous behaviour there.
+  const _confs=[war.confidence,famineOut.confidence,conquest.confidence].filter(c=>typeof c==='number');
+  let councilConfidence=Math.round(avg(_confs)-neutral*8-(disagree?20:0)-risk*4);councilConfidence=clamp(councilConfidence,25,92);
   let verdict='WATCH';if(bear>=2)verdict='REJECT';else if(!disagree&&bull===3&&risk<3)verdict=councilConfidence>=84?'STRONG':'FAVOURABLE';else if(!disagree&&bull>=2&&risk<4&&councilConfidence>=60)verdict='FAVOURABLE';
   const conflict=ev.some(x=>x.supports==='BULLISH')&&ev.some(x=>x.supports==='BEARISH');if(conflict)councilConfidence=clamp(councilConfidence-8,25,92);const high=ev.filter(x=>x.reliabilityScore>=72).length,rum=ev.filter(x=>x.type==='RUMOUR').length;
   const evidenceEngine={rule:'Rank the evidence, not the website.',summary:`${ev.length} evidence items assessed Â· ${high} high-reliability Â· ${rum} rumour(s).`,conflict,conflictNote:conflict?'Positive and negative evidence both exist, so Council confidence is reduced.':'No direct positive-vs-negative conflict detected in the captured evidence.',items:ev.sort((a,b)=>b.reliabilityScore-a.reliabilityScore)};
-  const name=ovOK?overview.Name:(cr.meta?.shortName||ticker);
-  return res.status(200).json({retrievedAt:new Date().toISOString(),asset:{ticker,name,currency:cr.meta?.currency,price:last},sources:{market:'Yahoo Finance chart data',fundamentals:'Alpha Vantage',news:'Yahoo Finance news search',sentiment:'Horseman multi-signal Conquest model (news attention + trading activity)',newsItems:news},evidenceEngine,horsemen:[war,famine,conquest,death],council:{verdict,confidence:councilConfidence,synopsis:`${name}: ${verdict}. The Council combined price behaviour, available fundamentals, multi-signal crowd attention and Death's risk checks.`,reasons:[`War: ${war.direction}; Famine: ${famine.direction}; Conquest: ${conquest.direction}.`,disagree?'Direct disagreement reduced confidence.':'No direct bullish-vs-bearish split among the primary Horsemen.',risk?`Death raised ${risk} risk point(s).`:'Death found no major connected-data risk flag.'],changeMind:['New price action, company results, verified news, or a material new risk can change the verdict.']}})
+  const name=useFamineV2?((famineV2.fundamentals.companyName)||cr.meta?.shortName||ticker):(ovOK?overview.Name:(cr.meta?.shortName||ticker));
+  return res.status(200).json({retrievedAt:new Date().toISOString(),asset:{ticker,name,currency:cr.meta?.currency,price:last},sources:{market:'Yahoo Finance chart data',fundamentals:'Alpha Vantage',news:'Yahoo Finance news search',sentiment:'Horseman multi-signal Conquest model (news attention + trading activity)',newsItems:news},evidenceEngine,horsemen:[war,famineOut,conquest,death],council:{verdict,confidence:councilConfidence,synopsis:`${name}: ${verdict}. The Council combined price behaviour, available fundamentals, multi-signal crowd attention and Death's risk checks.`,reasons:[`War: ${war.direction}; Famine: ${famineOut.direction}; Conquest: ${conquest.direction}.`,disagree?'Direct disagreement reduced confidence.':'No direct bullish-vs-bearish split among the primary Horsemen.',risk?`Death raised ${risk} risk point(s).`:'Death found no major connected-data risk flag.'],changeMind:['New price action, company results, verified news, or a material new risk can change the verdict.']}})
  }catch(e){console.error(e);return res.status(500).json({error:'Live analysis failed: '+(e?.message||'unknown error')})}
 }
