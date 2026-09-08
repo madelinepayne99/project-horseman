@@ -14,7 +14,65 @@
 </style></head><body><main><div class='brand'>PROJECT HORSEMAN · LIVE TEST</div><section class='hero'><h1>Summon the Horsemen.</h1><p class='sub'>Enter a stock ticker. Horseman will retrieve current market data and recent news, measure crowd attention from multiple available signals, show exactly what each role checked, then apply the Council rules. This is research support, not financial advice.</p></section><div class='search'><input id='ticker' value='AAPL' maxlength='12' placeholder='e.g. AAPL, MSFT, TSLA'><button id='go'>SUMMON</button></div><div id='status' class='status'>Ready. Live data is only fetched after you press SUMMON.</div><div id='out'></div><section class='guide'><h3>Plain-English guide</h3><p><b>⚔️ WAR — PRICE & CHART:</b> Is the share price looking strong or weak?</p><p><b>🥀 FAMINE — COMPANY & NEWS:</b> Is current company or economic news helping or hurting it?</p><p><b>👑 CONQUEST — PEOPLE & HYPE:</b> Is attention around the stock calm, fearful, excited or crowded?</p><p><b>☠️ DEATH — DANGER:</b> What could go wrong, and is waiting safer?</p><p><b>🏛️ COUNCIL — FINAL VIEW:</b> Taking everything together, how strong is the evidence?</p><p><b>🔎 EVIDENCE ENGINE:</b> Horseman judges each claim separately — fact, opinion, rumour or prediction — then checks freshness, confirmation, conflicts and possible bias. It does not assume a whole website is trustworthy or untrustworthy.</p><p class='meta'><b>RSI</b> = how stretched recent price movement is. <b>Momentum</b> = whether price has been moving with strength. <b>Volatility</b> = how violently price moves. <b>Macro</b> = wider economic conditions. <b>Sentiment</b> = the mood around the stock. <b>Crowding</b> = too many people leaning the same way. <b>Liquidity</b> = how easily shares can be bought/sold.</p></section><div class='footer'>The Council evaluates. You decide. Live data can be delayed, incomplete or wrong; Horseman shows uncertainty rather than hiding it.</div></main><script>
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function cls(d){return d==='BULLISH'?'good':d==='BEARISH'?'bad':'neutral'}
-function card(x){return `<div class='card'><div class='role'>${esc(x.icon)} ${esc(x.name)} — ${esc(x.label)}</div><div class='simple'>${esc(x.simple)}</div><div class='dir ${cls(x.direction)}'>${esc(x.direction)} · ${esc(x.confidence)}%</div><div class='section'><b>What it checked</b><ul>${x.checked.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div><div class='section'><b>Evidence used</b><ul>${x.evidence.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div><div class='section'><b>Limits / missing data</b><ul>${x.limits.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div></div>`}
+// A Horseman may legitimately reach no directional view. Conquest V2 reports
+// behaviour without a market direction, and Death V2 reports risk severity
+// rather than a direction and a conviction percentage. Neither is an error,
+// and neither may be shown as "null" or filled in with a fabricated number.
+function statLine(x){
+  const ds=x.dataSource||{};
+  if(x.name==='DEATH'&&ds.engine==='v2'&&ds.riskSeverity)
+    return `Risk: ${esc(ds.riskSeverity.replace(/_/g,' ').toLowerCase())} · evidence ${esc(String(ds.evidenceConfidence||'unknown').toLowerCase())}`;
+  if(ds.engine==='v2'&&x.name==='CONQUEST')
+    return `Behaviour observed · ${ds.crowdSentiment==='UNKNOWN'?'no crowd view available':'crowd view '+esc(String(ds.crowdSentiment).toLowerCase())}`;
+  if(x.direction===null||x.direction===undefined||x.direction==='UNKNOWN')
+    return 'No directional view reached';
+  return `${esc(x.direction)} · ${typeof x.confidence==='number'?esc(x.confidence)+'%':'confidence unavailable'}`;
+}
+// Every verdict the Council can reach, explained in plain words. WAIT and
+// EXCEPTIONAL are new in V2 and must never render as a bare unexplained word.
+const VERDICT_MEANING={
+  REJECT:'The evidence points against this opportunity.',
+  WATCH:'The evidence is genuinely balanced. Worth watching rather than acting on.',
+  WAIT:'The case may be promising, but the evidence is not yet complete or strong enough to act on. Waiting is the safer choice.',
+  FAVOURABLE:'The evidence supports the case, with enough of it to say so.',
+  STRONG:'The evidence supports the case with high strength and agreement, and no material unresolved challenge.',
+  EXCEPTIONAL:'The evidence is unusually strong, complete, current and unchallenged.'
+};
+// The Council may legitimately reach NO verdict: under the V2 engines it
+// reports INTEGRATION_UNAVAILABLE when a required Horseman is missing. That
+// state is shown as what it is — no verdict, no confidence number, and no
+// borrowed legacy answer standing in for one.
+function councilBlock(d,news){
+  const c=d.council||{};
+  const engine=c.engine==='v2'?`<div class='section'><b>Council engine</b><ul><li>V2</li></ul></div>`:'';
+  if(!c.verdict){
+    const missing=(c.missingDependencies||[]).map(x=>`<li>${esc(x)}</li>`).join('');
+    return `<div class='verdict'><div class='role'>🏛️ COUNCIL — NO VERDICT</div>`+
+      `<h2>No verdict reached</h2>`+
+      `<p>The Council did not reach a verdict, so none is shown. This is not a neutral result and should not be read as one.</p>`+
+      (missing?`<div class='section'><b>Evidence the Council still needs</b><ul>${missing}</ul></div>`:'')+
+      ((c.reasons||[]).length?`<div class='section'><b>Why</b><ul>${c.reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
+      ((c.limitations||[]).length?`<div class='section'><b>Limits</b><ul>${c.limitations.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
+      `${news}${evidencePanel(d.evidenceEngine)}</div>`;
+  }
+  const meaning=VERDICT_MEANING[c.verdict]||'';
+  const conf=typeof c.confidence==='number'?`${esc(c.confidence)}% confidence`:'confidence unavailable';
+  const coverage=c.coverage&&c.coverage.abstained&&c.coverage.abstained.length
+    ? `<div class='section'><b>Who reached a view</b><ul><li>Reached a view: ${esc((c.coverage.participating||[]).join(', ')||'none')}</li>`+
+      `<li>Reached no view: ${esc(c.coverage.abstained.join(', '))} — an abstention is not agreement</li></ul></div>`
+    : '';
+  const reasons=(c.reasons||c.verdictReasons||[]);
+  const change=(c.changeMind||c.whatWouldChangeMind||[]);
+  return `<div class='verdict'><div class='role'>🏛️ COUNCIL — FINAL VIEW</div>`+
+    `<h2>${esc(c.verdict)} · ${conf}</h2>`+
+    (meaning?`<p><b>${esc(meaning)}</b></p>`:'')+
+    (c.synopsis?`<p>${esc(c.synopsis)}</p>`:'')+
+    coverage+engine+
+    (reasons.length?`<div class='section'><b>Why</b><ul>${reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
+    (change.length?`<div class='section'><b>What would change the Council's mind</b><ul>${change.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
+    `${news}${evidencePanel(d.evidenceEngine)}</div>`;
+}
+function card(x){return `<div class='card'><div class='role'>${esc(x.icon)} ${esc(x.name)} — ${esc(x.label)}</div><div class='simple'>${esc(x.simple)}</div><div class='dir ${cls(x.direction)}'>${statLine(x)}</div><div class='section'><b>What it checked</b><ul>${x.checked.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div><div class='section'><b>Evidence used</b><ul>${x.evidence.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div><div class='section'><b>Limits / missing data</b><ul>${x.limits.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div></div>`}
 function evidencePanel(e){if(!e)return '';const rows=(e.items||[]).map((x,i)=>`<div class='evidenceitem'><b>${esc(x.claim)}</b><div><span class='pill'>${esc(x.type)}</span><span class='pill'>Reliability: ${esc(x.reliability)} ${esc(x.reliabilityScore)}%</span><span class='pill'>${esc(x.freshness)}</span><span class='pill'>${x.confirmed?'Confirmed elsewhere':'Not independently confirmed'}</span><span class='pill'>Supports: ${esc(x.supports)}</span></div><div class='smallgrid meta'><div><b>Source</b> ${esc(x.source)}</div><div><b>Confirmation</b> ${esc(x.confirmation)}</div><div><b>Possible bias / limitation</b> ${esc(x.possibleBias)}</div><div><b>Published</b> ${esc(x.published||'Not dated')}</div></div></div>`).join('');return `<div class='evidencebox'><div class='role'>🔎 EVIDENCE ENGINE</div><p><b>${esc(e.rule)}</b></p><p>${esc(e.summary)}</p><p class='meta'>${esc(e.conflictNote)}</p><button class='toggle' onclick="document.getElementById('whybox').classList.toggle('open')">Why does Horseman believe this? ▾</button><div id='whybox' class='why'>${rows}</div></div>`}
 // Staged reveal. TIMING IS PRESENTATION ONLY: the analysis is fetched ONCE,
 // up front, and every value shown below comes from that single response.
@@ -64,7 +122,7 @@ async function run(){
     await sleep(STEP_MS);
 
     let news=d.sources.newsItems?.length?`<div class='section links'><b>Recent sources checked</b><ul>${d.sources.newsItems.map(n=>`<li><a target='_blank' rel='noopener' href='${esc(n.url)}'>${esc(n.title)}</a> <span class='meta'>(${esc(n.source)})</span></li>`).join('')}</ul></div>`:'';
-    councilSlot.innerHTML=`<div class='verdict'><div class='role'>🏛️ COUNCIL — FINAL VIEW</div><h2>${esc(d.council.verdict)} · ${esc(d.council.confidence)}% confidence</h2><p>${esc(d.council.synopsis)}</p><div class='section'><b>Why</b><ul>${d.council.reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div><div class='section'><b>What would change the Council's mind</b><ul>${d.council.changeMind.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>${news}${evidencePanel(d.evidenceEngine)}</div>`;
+    councilSlot.innerHTML=councilBlock(d,news);
     councilSlot.firstElementChild.classList.add('reveal');
   }catch(e){
     // Honest failure: the sequence stops and nothing is shown in its place.

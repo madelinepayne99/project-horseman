@@ -475,6 +475,41 @@ function escapeHtml(s){
     ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 }
 function safe(v){ return {__safe:String(v ?? "")}; }
+
+// A Horseman may legitimately reach no directional view. Conquest V2 reports
+// observed behaviour without a market direction, and Death V2 reports risk
+// severity and evidence confidence rather than a direction and a conviction
+// percentage. Neither is an error, and neither may render as "null" or be
+// filled in with a fabricated number.
+function statLine(h){
+  const ds = h.dataSource || {};
+  if (h.name === "DEATH" && ds.engine === "v2" && ds.riskSeverity) {
+    return `Risk: ${escapeHtml(String(ds.riskSeverity).replace(/_/g, " ").toLowerCase())} — evidence ${
+      escapeHtml(String(ds.evidenceConfidence || "unknown").toLowerCase())}`;
+  }
+  if (h.name === "CONQUEST" && ds.engine === "v2") {
+    return ds.crowdSentiment && ds.crowdSentiment !== "UNKNOWN"
+      ? `Behaviour observed — crowd view ${escapeHtml(String(ds.crowdSentiment).toLowerCase())}`
+      : "Behaviour observed — no crowd view available";
+  }
+  if (h.direction === null || h.direction === undefined || h.direction === "UNKNOWN") {
+    return "No directional view reached";
+  }
+  return `${escapeHtml(h.direction)} — ${typeof h.confidence === "number"
+    ? escapeHtml(String(h.confidence)) + "%" : "confidence unavailable"}`;
+}
+
+// Every verdict the Council can reach, in plain words. WAIT and EXCEPTIONAL
+// are new under the V2 engines and must never appear as a bare, unexplained
+// word the reader has to guess at.
+const VERDICT_MEANING = {
+  REJECT: "The evidence points against this opportunity.",
+  WATCH: "The evidence is genuinely balanced. Worth watching rather than acting on.",
+  WAIT: "The case may be promising, but the evidence is not yet complete or strong enough to act on. Waiting is the safer choice.",
+  FAVOURABLE: "The evidence supports the case, with enough of it to say so.",
+  STRONG: "The evidence supports the case with high strength and agreement, and no material unresolved challenge.",
+  EXCEPTIONAL: "The evidence is unusually strong, complete, current and unchallenged."
+};
 function html(strings, ...vals){
   return strings.reduce((out, s, k) => {
     if (k === 0) return s;
@@ -684,7 +719,7 @@ function horsemanRow(h){
       <div class="hr-body">
         <div class="hr-head">
           <h4 class="${safe(key)}">${h.label}</h4>
-          <span class="hr-stat">${h.direction} — ${h.confidence}%</span>
+          <span class="hr-stat">${statLine(h)}</span>
         </div>
         <p class="hr-reason">${h.simple}</p>
         <ul class="hr-evidence">
@@ -762,15 +797,29 @@ function renderResults(){
         · market data: ${src.market || "—"}</div>
 
       <div class="verdict-block">
-        <div class="verdict-eyebrow">The Council Has Decided</div>
-        <div class="verdict-word">${council.verdict}</div>
-        <div class="verdict-confidence"><span class="num">${council.confidence}%</span> confidence</div>
-        <p class="verdict-explain">${council.synopsis}</p>
+        <div class="verdict-eyebrow">${council.verdict ? "The Council Has Decided" : "The Council Reached No Verdict"}</div>
+        <div class="verdict-word">${council.verdict || "NO VERDICT"}</div>
+        <div class="verdict-confidence">${council.verdict && typeof council.confidence === "number"
+          ? `<span class="num">${council.confidence}%</span> confidence`
+          : `<span class="num">—</span> no confidence figure, because no verdict was reached`}</div>
+        ${safe(council.verdict && VERDICT_MEANING[council.verdict]
+          ? `<p class="verdict-explain"><strong>${escapeHtml(VERDICT_MEANING[council.verdict])}</strong></p>` : "")}
+        ${safe(!council.verdict
+          ? `<p class="verdict-explain">The Council did not reach a verdict, so none is shown. This is not a neutral result and must not be read as one.</p>
+             ${(council.missingDependencies || []).length
+               ? `<p class="council-sub">Evidence the Council still needs</p><ul class="council-list">${
+                   council.missingDependencies.map(m => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : ""}` : "")}
+        ${safe(council.coverage && (council.coverage.abstained || []).length
+          ? `<p class="council-sub">Who reached a view</p><ul class="council-list">
+               <li>Reached a view: ${escapeHtml((council.coverage.participating || []).join(", ") || "none")}</li>
+               <li>Reached no view: ${escapeHtml(council.coverage.abstained.join(", "))} — an abstention is not agreement</li>
+             </ul>` : "")}
+        ${safe(council.synopsis ? `<p class="verdict-explain">${escapeHtml(council.synopsis)}</p>` : "")}
         <div class="council-inner">
-          ${safe((council.reasons || []).length ? `<p class="council-sub">Why</p><ul class="council-list">${
-            council.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "")}
-          ${safe((council.changeMind || []).length ? `<p class="council-sub">What would change the Council's mind</p><ul class="council-list">${
-            council.changeMind.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "")}
+          ${safe(((council.reasons || council.verdictReasons || [])).length ? `<p class="council-sub">Why</p><ul class="council-list">${
+            (council.reasons || council.verdictReasons).map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "")}
+          ${safe(((council.changeMind || council.whatWouldChangeMind || [])).length ? `<p class="council-sub">What would change the Council's mind</p><ul class="council-list">${
+            (council.changeMind || council.whatWouldChangeMind).map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "")}
         </div>
         <p class="confidence-note">Confidence reflects the strength, quality and agreement of
         evidence the Council currently has — not a probability that this trade will be profitable.</p>
@@ -783,7 +832,7 @@ function renderResults(){
         <ul class="hr-evidence">
           ${safe((death.evidence || []).map(e => `<li>${escapeHtml(e)}</li>`).join(""))}
         </ul>
-        <div class="dh-meta"><b>${death.direction} — ${death.confidence}%</b> —
+        <div class="dh-meta"><b>${statLine(death)}</b> —
           heard before every verdict, not offered after the fact.</div>
         ${safe((death.limits || []).length ? `<div class="hr-limits"><b>Limits / missing data</b>${
           death.limits.map(l => `<div>${escapeHtml(l)}</div>`).join("")}</div>` : "")}
