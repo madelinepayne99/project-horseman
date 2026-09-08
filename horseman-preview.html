@@ -476,6 +476,15 @@ function escapeHtml(s){
 }
 function safe(v){ return {__safe:String(v ?? "")}; }
 
+// Developer panels are opt-in via the page URL. Normal users never see them,
+// and nothing is removed from the API response.
+function isDeveloperView(){
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return q.get("debug") === "1" || q.get("dev") === "1";
+  } catch (e) { return false; }
+}
+
 // A Horseman may legitimately reach no directional view. Conquest V2 reports
 // observed behaviour without a market direction, and Death V2 reports risk
 // severity and evidence confidence rather than a direction and a conviction
@@ -647,6 +656,19 @@ function beginSummon(){
 
   const url = new URL('/api/analyse', window.location.origin);
   url.searchParams.set('ticker', state.selected.ticker);
+  // Activate the V2 engines explicitly for the user-facing view. The API's
+  // own defaults are deliberately unchanged, so every other caller keeps the
+  // behaviour it has today; this request opts in, it does not flip a global.
+  //
+  // Expect V2 to read more conservatively than the legacy path: Conquest
+  // abstains without a direct crowd source, Death reports risk severity
+  // rather than a direction, and the Council's confidence reflects that
+  // missing evidence. That is the intended behaviour, not a regression.
+  url.searchParams.set('warEngine', 'v2');
+  url.searchParams.set('famineEngine', 'v2');
+  url.searchParams.set('conquestEngine', 'v2');
+  url.searchParams.set('deathEngine', 'v2');
+  url.searchParams.set('councilEngine', 'v2');
 
   const request = fetch(url.href, {method:'GET', headers:{'Accept':'application/json'}})
     .then(async r => {
@@ -738,6 +760,10 @@ function warProvenance(){
   const w = findHorseman("WAR");
   const ds = w && w.dataSource;
   if (!ds) return "";
+  // Developer view only. The API still returns the full provenance — this
+  // hides it from the normal user-facing result rather than removing it.
+  // Enable with ?debug=1 (or ?dev=1) on the page URL.
+  if (!isDeveloperView()) return "";
   const rows = [
     ["Engine", ds.engine], ["Provider", ds.provider],
     ["Simulated", String(ds.simulated)], ["Data status", ds.dataStatus],
@@ -799,9 +825,9 @@ function renderResults(){
       <div class="verdict-block">
         <div class="verdict-eyebrow">${council.verdict ? "The Council Has Decided" : "The Council Reached No Verdict"}</div>
         <div class="verdict-word">${council.verdict || "NO VERDICT"}</div>
-        <div class="verdict-confidence">${council.verdict && typeof council.confidence === "number"
-          ? `<span class="num">${council.confidence}%</span> confidence`
-          : `<span class="num">—</span> no confidence figure, because no verdict was reached`}</div>
+        <div class="verdict-confidence">${safe(council.verdict && typeof council.confidence === "number"
+          ? `<span class="num">${escapeHtml(council.confidence)}%</span> confidence`
+          : `<span class="num">&mdash;</span> no confidence figure, because no verdict was reached`)}</div>
         ${safe(council.verdict && VERDICT_MEANING[council.verdict]
           ? `<p class="verdict-explain"><strong>${escapeHtml(VERDICT_MEANING[council.verdict])}</strong></p>` : "")}
         ${safe(!council.verdict
