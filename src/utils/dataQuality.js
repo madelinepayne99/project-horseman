@@ -8,11 +8,16 @@
 
 const FRESH_MAX_AGE_HOURS = 96; // generous enough to span a weekend/holiday for daily bars
 
-export function assessFreshness(latestPoint) {
+export function assessFreshness(latestPoint, now = new Date()) {
   if (!latestPoint || !latestPoint.timestamp) {
     return { latestDataTimestamp: null, ageHours: null, status: "unavailable" };
   }
-  const ageMs = Date.now() - latestPoint.timestamp;
+  // Uses the injected clock so freshness is deterministic under test.
+  // Previously this read Date.now() directly, which made War's freshness
+  // untestable and caused fixtures with fixed dates to go stale as the
+  // real calendar advanced. Production behaviour is unchanged: the default
+  // is the current time.
+  const ageMs = now.getTime() - latestPoint.timestamp;
   const ageHours = ageMs / (1000 * 60 * 60);
   return {
     latestDataTimestamp: new Date(latestPoint.timestamp).toISOString(),

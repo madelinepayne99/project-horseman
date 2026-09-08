@@ -1,5 +1,5 @@
 /**
- * SUPPORTED SCOPE â€” US equities only, for this phase.
+ * SUPPORTED SCOPE — US equities only, for this phase.
  * ---------------------------------------------------------------------
  * Deliberately NOT solved by pattern-matching the ticker string (e.g.
  * rejecting anything containing "."), because that would misclassify
@@ -18,7 +18,7 @@
  * (either signal is sufficient; providers don't always populate both).
  *
  * If no usable canonical exchange/country info is present at all, the
- * security is treated as UNSUPPORTED rather than assumed to be in-scope â€”
+ * security is treated as UNSUPPORTED rather than assumed to be in-scope —
  * silence is not evidence of eligibility.
  *
  * This check only applies to real (non-simulated) series. Simulated/demo
