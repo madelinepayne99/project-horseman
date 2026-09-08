@@ -232,3 +232,105 @@ test("the frontends compute no verdict logic of their own", () => {
     }
   }
 });
+
+/* ==================================================================== */
+/* V2 ACTIVATION + THE ESCAPING DEFECT                                   */
+/*                                                                       */
+/* The earlier tests in this file extracted helpers and regex-matched     */
+/* source text. That is exactly why a live rendering defect shipped with  */
+/* a green suite: the html`` tagged template was never executed, so the   */
+/* escaping path was never exercised. These tests run it for real.        */
+/* ==================================================================== */
+
+/** The preview's ACTUAL rendering primitives, lifted from the shipped file. */
+function loadTemplateEngine() {
+  const html = readFileSync(new URL("../horseman-preview.html", import.meta.url), "utf8");
+  const src = [
+    extract(html, "function escapeHtml(s){", "\n}"),
+    extract(html, "function safe(v){", "\n}"),
+    extract(html, "function html(strings, ...vals){", "\n}"),
+    "return { html, safe, escapeHtml };",
+  ].join("\n");
+  return new Function(src)();
+}
+
+/** The verdict-confidence expression exactly as it appears in the file. */
+function verdictConfidenceMarkup() {
+  const file = readFileSync(new URL("../horseman-preview.html", import.meta.url), "utf8");
+  return extract(file, '<div class="verdict-confidence">', "</div>");
+}
+
+test("REGRESSION: the confidence markup RENDERS, it does not escape", () => {
+  const { html, safe, escapeHtml } = loadTemplateEngine();
+  const markup = verdictConfidenceMarkup();
+  // Evaluate the real expression from the file against the real engine.
+  const render = new Function("html", "safe", "escapeHtml", "council",
+    "return html`" + markup + "`;");
+
+  const withVerdict = render(html, safe, escapeHtml, { verdict: "FAVOURABLE", confidence: 53 });
+  assert.ok(!withVerdict.includes("&lt;span"),
+    `raw HTML was escaped and would display literally: ${withVerdict}`);
+  assert.match(withVerdict, /<span class="num">53%<\/span> confidence/);
+
+  const noVerdict = render(html, safe, escapeHtml, { verdict: null, confidence: null });
+  assert.ok(!noVerdict.includes("&lt;span"));
+  assert.match(noVerdict, /no confidence figure, because no verdict was reached/);
+  assert.ok(!/\bnull\b/.test(noVerdict));
+});
+
+test("escaping is not weakened: the interpolated value itself is still escaped", () => {
+  const { html, safe, escapeHtml } = loadTemplateEngine();
+  // A hostile value must not become markup.
+  const out = html`<p>${'<img src=x onerror=alert(1)>'}</p>`;
+  assert.ok(out.includes("&lt;img"), "plain interpolation must still escape");
+  assert.ok(!out.includes("<img"));
+  // And escapeHtml is applied to the confidence value inside the safe block.
+  const markup = verdictConfidenceMarkup();
+  assert.match(markup, /escapeHtml\(council\.confidence\)/,
+    "the value must stay escaped even though the surrounding markup is safe");
+});
+
+/* ---------------- V2 activation ---------------- */
+
+test("the user-facing preview explicitly requests the V2 engines", () => {
+  const file = readFileSync(new URL("../horseman-preview.html", import.meta.url), "utf8");
+  for (const engine of ["warEngine", "famineEngine", "conquestEngine", "deathEngine", "councilEngine"]) {
+    assert.ok(new RegExp(`searchParams\\.set\\('${engine}', 'v2'\\)`).test(file),
+      `the preview must request ${engine}=v2`);
+  }
+  assert.match(file, /searchParams\.set\('ticker'/);
+});
+
+test("activation is client-side only: the API keeps its own defaults", () => {
+  const api = readFileSync(new URL("../api/analyse.js", import.meta.url), "utf8");
+  // Opt-in gates unchanged for the four engines that default to legacy.
+  for (const engine of ["famineEngine", "councilEngine", "deathEngine", "conquestEngine"]) {
+    assert.ok(new RegExp(`${engine}\\|\\|''\\)\\.trim\\(\\)\\.toLowerCase\\(\\)==='v2'`).test(api),
+      `${engine} must remain opt-in at the API`);
+  }
+  // War's existing default is likewise untouched.
+  assert.ok(/warEngine\|\|''\)\.trim\(\)\.toLowerCase\(\)!=='v1'/.test(api));
+});
+
+/* ---------------- developer panel ---------------- */
+
+test("the developer provenance panel is hidden from normal users", () => {
+  const file = readFileSync(new URL("../horseman-preview.html", import.meta.url), "utf8");
+  assert.match(file, /if \(!isDeveloperView\(\)\) return "";/,
+    "the panel must be gated");
+  const gate = new Function(extract(file, "function isDeveloperView(){", "\n}") +
+    "return isDeveloperView;")();
+  for (const [search, expected] of [["", false], ["?ticker=AAPL", false],
+                                    ["?debug=1", true], ["?dev=1", true], ["?debug=0", false]]) {
+    global.window = { location: { search } };
+    assert.equal(gate(), expected, `search "${search}" should be ${expected}`);
+  }
+  delete global.window;
+});
+
+test("gating the panel removes nothing from the API response", () => {
+  const api = readFileSync(new URL("../api/analyse.js", import.meta.url), "utf8");
+  for (const field of ["dataStatus", "candlesUsed", "latestDataTimestamp", "calculationVersion"]) {
+    assert.ok(api.includes(field), `${field} must still be returned by the API`);
+  }
+});

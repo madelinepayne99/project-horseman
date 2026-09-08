@@ -357,3 +357,99 @@ test("default and V1 paths never receive the adapter", async () => {
   const b = await analyse({ ticker: "TEST", deathEngine: "v1", conquestEngine: "v1" });
   assert.deepEqual(strip(a.body), strip(b.body));
 });
+
+/* ==================================================================== */
+/* THE EXACT REQUEST THE USER-FACING PREVIEW NOW MAKES                   */
+/*                                                                       */
+/* Guards the activated path end to end. If any engine silently reverts   */
+/* to legacy, these fail.                                                 */
+/* ==================================================================== */
+
+const ACTIVATED = {
+  ticker: "TEST", warEngine: "v2", famineEngine: "v2",
+  conquestEngine: "v2", deathEngine: "v2", councilEngine: "v2",
+};
+
+test("the activated request runs every engine on V2", async () => {
+  const { body } = await analyse(ACTIVATED);
+  assert.equal(body.horsemen.find(h => h.name === "WAR").dataSource.engine, "v2");
+  assert.equal(body.horsemen.find(h => h.name === "FAMINE").dataSource.engine, "v2");
+  assert.equal(conquestOf(body).dataSource.engine, "v2");
+  assert.equal(deathOf(body).engine, "v2");
+  assert.equal(body.council.engine, "v2");
+  assert.equal(body.council.status, "ASSESSED");
+});
+
+test("Conquest abstains: no direct crowd evidence means no directional stance", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const ds = conquestOf(body).dataSource;
+  assert.equal(ds.crowdSentiment, "UNKNOWN");
+  assert.equal(ds.provenance.directCrowdEvidence, false);
+  assert.equal(ds.provenance.directionalContributionPermitted, false);
+  assert.ok(body.council.coverage.abstained.includes("CONQUEST"));
+  const contribution = body.council.directional.contributions.find(c => c.horseman === "CONQUEST");
+  assert.equal(contribution.participated, false);
+  assert.equal(contribution.stance, null);
+  assert.equal(contribution.weight, 0);
+});
+
+test("REGRESSION: UNKNOWN is never converted to NEUTRAL anywhere in the V2 response", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const ds = conquestOf(body).dataSource;
+  for (const field of ["crowdSentiment", "crowding", "polarisation"]) {
+    assert.equal(ds[field], "UNKNOWN", `${field} must stay UNKNOWN`);
+    assert.notEqual(ds[field], "NEUTRAL");
+  }
+  assert.equal(ds.crowdAttention, "UNAVAILABLE");
+  // Conquest is listed as abstaining, never as a neutral participant.
+  assert.ok(!body.council.coverage.participating.includes("CONQUEST"));
+});
+
+test("Death is not an ordinary bullish/bearish vote under V2", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const death = body.horsemen.find(h => h.name === "DEATH");
+  assert.equal(death.direction, null, "Death reports risk, not a market direction");
+  assert.equal(death.confidence, null);
+  assert.ok(deathOf(body).riskSeverity, "it reports a severity instead");
+  // Death is not one of the directional Horsemen the Council counts.
+  assert.deepEqual(body.council.coverage.expected, ["WAR", "FAMINE", "CONQUEST"]);
+});
+
+test("Council uses the V2 structured assessment, not legacy Horseman objects", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const c = body.council;
+  assert.ok(c.coverage && c.directional && c.factors, "V2 judgment structure is present");
+  assert.equal(typeof c.factors.evidenceStrength, "number");
+  assert.ok(!("synopsis" in c), "the legacy council shape is not being returned");
+  // Death's structured severity reached the Council's own factors.
+  assert.ok("deathFactor" in c.factors || "riskSeverity" in JSON.stringify(c),
+    "Death's structured risk informs the Council");
+});
+
+test("provenance and correlation survive into the Council", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const correlation = body.council.directional.correlation;
+  assert.ok(Array.isArray(correlation.groups));
+  assert.equal(correlation.provenanceIntegrity.complete, true,
+    "every directional contributor declared its provenance");
+  assert.equal(correlation.hasCorrelatedEvidence, false);
+  // War and Famine read different feeds, so both count.
+  assert.equal(correlation.independentContributors, 2);
+});
+
+test("missing crowd evidence lowers completeness rather than being ignored", async () => {
+  const { body } = await analyse(ACTIVATED);
+  assert.ok(body.council.coverage.participationRatio < 1,
+    "an abstaining Horseman reduces coverage");
+  assert.ok(body.council.factors.evidenceStrength < 1);
+  // And Death records the assessed-but-empty crowd channel.
+  const ids = deathOf(body).missingEvidence.map(f => f.id);
+  assert.ok(ids.includes("CROWDING_UNKNOWN"));
+});
+
+test("the default request is untouched by frontend activation", async () => {
+  const { body } = await analyse({ ticker: "TEST" });
+  assert.equal(body.horsemen.find(h => h.name === "CONQUEST").dataSource, undefined,
+    "the API still defaults to legacy Conquest");
+  assert.equal(body.council.engine, undefined, "and to the legacy Council");
+});
