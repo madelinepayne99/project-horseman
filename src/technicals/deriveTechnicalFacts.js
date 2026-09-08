@@ -12,7 +12,7 @@ import { isProvisionalBar } from "../utils/marketSession.js";
  *
  *   Normalised OHLCV  --(this module)-->  technicalFacts  --(dataQuality.js + buildWarInput.js)--> War input
  *
- * Pure calculation only â€” this module makes no judgement about whether
+ * Pure calculation only — this module makes no judgement about whether
  * the result is fresh, complete, or good enough to show anyone. That's
  * deliberately left to utils/dataQuality.js and technicals/buildWarInput.js
  * so a bug in "is this data good enough" can never be confused with a bug

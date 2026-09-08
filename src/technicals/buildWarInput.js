@@ -14,11 +14,11 @@ const CALCULATION_VERSION = "war-technicals-v2";
  *
  *   Provider response
  *     -> Normalised OHLCV        (src/schema/ohlcv.js, done by the provider adapter)
- *     -> Derived technical facts (src/technicals/deriveTechnicalFacts.js â€” pure calc)
- *     -> Data-quality assessment (src/utils/dataQuality.js â€” freshness/completeness)
- *     -> War input object        (this module â€” assembly + status decision only)
+ *     -> Derived technical facts (src/technicals/deriveTechnicalFacts.js — pure calc)
+ *     -> Data-quality assessment (src/utils/dataQuality.js — freshness/completeness)
+ *     -> War input object        (this module — assembly + status decision only)
  *
- * No provider-specific field name is read past the normalisation layer â€”
+ * No provider-specific field name is read past the normalisation layer —
  * this module only ever touches `series.points`, `series.source`, and the
  * output of deriveTechnicalFacts(). If Twelve Data is swapped for another
  * provider, nothing below the adapter needs to change.
@@ -35,7 +35,7 @@ const CALCULATION_VERSION = "war-technicals-v2";
  *
  * The `debug` block is preserved specifically so an incorrect War result
  * can be traced to its layer: provider (source/providerMeta), calculation
- * (technicalFacts), or data quality (freshness/completeness) â€” without
+ * (technicalFacts), or data quality (freshness/completeness) — without
  * needing to reproduce the original request.
  */
 export function buildWarInput(series, { now = new Date() } = {}) {
@@ -63,11 +63,11 @@ export function buildWarInput(series, { now = new Date() } = {}) {
 
   const technicalFacts = deriveTechnicalFacts(series, { now });
 
-  const freshness = assessFreshness(technicalFacts.latestPoint);
+  const freshness = assessFreshness(technicalFacts.latestPoint, now);
 
   // Completeness answers "did we get the data we needed?". A suppressed
-  // volume comparison during an open session is not a data shortfall â€” the
-  // data is exactly as complete as it can be at that moment â€” so it is
+  // volume comparison during an open session is not a data shortfall — the
+  // data is exactly as complete as it can be at that moment — so it is
   // excluded from the check rather than counted as missing. Counting it
   // would mark every intraday request PARTIAL_DATA, which would both
   // devalue that status (it exists to flag genuine gaps, e.g. no 200DMA
