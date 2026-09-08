@@ -1,231 +1,271 @@
-import { hasDirectCrowdEvidence, EvidenceOrigin, isPresent, factValue } from "../schema/crowd.js";
-import { usableObservations, MIN_CLASSIFIED_OBSERVATIONS, CrowdSentiment } from "./sentiment.js";
+import { isPresent, factValue, EvidenceAvailability, ageInDays } from "../schema/fundamentals.js";
 
 /**
- * CONQUEST V2 — EVIDENCE QUALITY
+ * FAMINE V2 — EVIDENCE QUALITY
  *
- * STATUS: INERT. Nothing imports this yet.
+ * Freshness, completeness and disagreement. This module describes how good
+ * the evidence is; it never says what the evidence MEANS. No direction, no
+ * confidence, no score of market opinion is produced here.
  *
- * ---------------------------------------------------------------------
- * WHAT CONQUEST CONFIDENCE MEANS
- * ---------------------------------------------------------------------
- *   "How strongly does the available evidence justify Conquest's OWN
- *    conclusions?"
- *
- * It is NOT the probability the stock rises, not trade confidence, not
- * Council confidence, and not generic certainty. Legacy Conquest's
- * confidence rose with ATTENTION VOLUME and keyword magnitude, which is
- * why a live run reported 84 on the strength of other companies'
- * headlines. Quality here is computed only from properties of the
- * evidence itself.
- *
- * ---------------------------------------------------------------------
- * NO ARBITRARY CAP
- * ---------------------------------------------------------------------
- * Proxy-only evidence is not "capped at 50". Instead the two are simply
- * different questions with different answers:
- *
- *   - Attention evidence (media items, market activity) gets its OWN
- *     quality statement, explicitly labelled PROXY.
- *   - Sentiment confidence does not exist at all without direct crowd
- *     evidence. UNKNOWN sentiment carries confidence null, because
- *     attaching any percentage to a direction we never formed would be
- *     inventing precision.
+ * All functions are pure and take an injectable `now`, so identical input
+ * always yields identical output.
  */
 
-export const QualityBand = Object.freeze({
-  STRONG: "STRONG",
-  MODERATE: "MODERATE",
-  WEAK: "WEAK",
-  INSUFFICIENT: "INSUFFICIENT",
+/* ------------------------------------------------------------------ */
+/* FRESHNESS                                                           */
+/* ------------------------------------------------------------------ */
+
+export const Freshness = Object.freeze({
+  CURRENT: "CURRENT",
+  AGEING: "AGEING",
+  STALE: "STALE",
+  UNKNOWN: "UNKNOWN",   // no usable date — NOT the same as stale
 });
 
-export const EvidenceKind = Object.freeze({
-  DIRECT_CROWD: "DIRECT_CROWD",
-  PROXY: "PROXY",
+/**
+ * Quarterly financial data is not market-price data and must not be judged
+ * on the same clock. A company reports roughly every 90 days, and there is
+ * a reporting lag after each period ends, so figures a couple of months old
+ * are entirely current in the only sense that matters here.
+ *
+ * CURRENT  <= 100 days  — within the normal reporting cycle
+ * AGEING   <= 200 days  — roughly one missed cycle; usable, worth flagging
+ * STALE     > 200 days  — more than two cycles; must not read as current
+ *
+ * These are cadence-derived, not statistically calibrated, and are stated
+ * as such deliberately.
+ */
+export const FRESHNESS_THRESHOLDS = Object.freeze({
+  CURRENT_MAX_DAYS: 100,
+  AGEING_MAX_DAYS: 200,
 });
 
-export const QUALITY_BANDS = Object.freeze({ STRONG: 0.7, MODERATE: 0.45 });
-
-/**
- * Breadth floor. Averaging factors let strong ones mask fatal ones: 500
- * observations from ONE author on ONE source scored 0.74 and banded STRONG,
- * because sample size, coverage, freshness and cleanliness were all perfect.
- * But one person posting 500 times is not a crowd at all.
- *
- * When BOTH source and author breadth are this weak, the band cannot exceed
- * MODERATE however well the other factors score. This is a structural
- * weakness gate on the BAND, not an arbitrary cap on proxy evidence.
- */
-export const BREADTH_FLOOR = Object.freeze({ SOURCE_DIVERSITY: 0.4, AUTHOR_DIVERSITY: 0.2 });
-
-/**
- * Sample-size sufficiency, saturating rather than rewarding raw volume
- * without limit: quantity alone must not manufacture strength.
- */
-export const SAMPLE_SATURATION = 40;
-
-function band(score) {
-  if (score >= QUALITY_BANDS.STRONG) return QualityBand.STRONG;
-  if (score >= QUALITY_BANDS.MODERATE) return QualityBand.MODERATE;
-  return QualityBand.WEAK;
-}
-
-function clamp01(n) { return Math.max(0, Math.min(1, n)); }
-
-/**
- * Quality of DIRECT crowd evidence, as an explicit factor breakdown.
- * Every factor is 0..1 and reported individually so a reader can see which
- * property is weak rather than being handed one opaque number.
- *
- * @param {object} crowdEvidence  structure from src/schema/crowd.js
- * @param {object} sentimentResult result of assessCrowdSentiment()
- * @param {Date}   now
- */
-export function assessCrowdEvidenceQuality(crowdEvidence, sentimentResult = null, now = new Date()) {
-  const insufficient = reason => Object.freeze({
-    evidenceKind: EvidenceKind.DIRECT_CROWD,
-    directEvidence: false,
-    qualityBand: QualityBand.INSUFFICIENT,
-    qualityScore: null,
-    factors: Object.freeze({}),
-    // Absent, never a fabricated low percentage on an unformed direction.
-    sentimentConfidence: null,
-    limitations: Object.freeze([reason]),
-  });
-
-  if (!hasDirectCrowdEvidence(crowdEvidence) || crowdEvidence.origin !== EvidenceOrigin.OBSERVED_CROWD) {
-    return insufficient("No direct public-crowd evidence, so no crowd-sentiment confidence can be stated.");
-  }
-
-  const all = crowdEvidence.observations;
-  const usable = usableObservations(all);
-  const excludedShare = all.length ? (all.length - usable.length) / all.length : 0;
-
-  const distinctSources = new Set(all.map(o => o.sourceName)).size;
-  const distinctAuthors = new Set(all.map(o => o.authorId).filter(Boolean)).size;
-  const classified = usable.filter(o => o.stance !== "UNCLASSIFIED").length;
-  const coverage = usable.length ? classified / usable.length : 0;
-
-  // Freshness of the observation window.
-  const windowEnd = crowdEvidence.window?.end || crowdEvidence.source?.observedAt || null;
-  const ageHours = windowEnd ? (now.getTime() - Date.parse(windowEnd)) / 3600000 : null;
-  const freshness = ageHours === null || Number.isNaN(ageHours)
-    ? 0.5                                    // unknown age: neither trusted nor discarded
-    : ageHours <= 24 ? 1 : ageHours <= 72 ? 0.7 : ageHours <= 24 * 7 ? 0.4 : 0.15;
-
-  const qualityUnknown = all.every(o => o.isDuplicate === null && o.isSuspectedAutomated === null);
-
-  const factors = Object.freeze({
-    // Saturating: 40+ usable observations is as much as quantity can buy.
-    sampleSize: clamp01(usable.length / SAMPLE_SATURATION),
-    sourceDiversity: clamp01(distinctSources / 5),
-    authorDiversity: distinctAuthors === 0 ? null : clamp01(distinctAuthors / Math.max(1, all.length)),
-    classificationCoverage: clamp01(coverage),
-    freshness,
-    // Heavy duplication/automation removal is a WEAKNESS of the feed.
-    cleanliness: clamp01(1 - excludedShare),
-    classifierConfidence: isPresent(crowdEvidence.classifierConfidence)
-      ? clamp01(factValue(crowdEvidence.classifierConfidence))
-      : null,
-    // Agreement is a property of the evidence, not a market view.
-    agreement: sentimentResult && typeof sentimentResult.netLean === "number"
-      ? clamp01(Math.abs(sentimentResult.netLean))
-      : null,
-  });
-
-  // Unknown factors are EXCLUDED from the mean rather than scored zero:
-  // missing quality information reduces what can be CLAIMED, but must not
-  // make otherwise usable evidence look worthless.
-  const present = Object.entries(factors).filter(([, v]) => typeof v === "number");
-  const qualityScore = present.length
-    ? Number((present.reduce((a, [, v]) => a + v, 0) / present.length).toFixed(4))
-    : null;
-
-  const limitations = [
-    "Evidence quality describes how well the available evidence supports Conquest's own conclusions. It is not a probability that the trade will succeed.",
-  ];
-  if (qualityUnknown) limitations.push("The source supplied no duplicate or automation flags, so feed cleanliness could not be verified.");
-  if (factors.authorDiversity === null) limitations.push("The source supplied no author identifiers, so participation diversity could not be assessed.");
-  if (factors.classifierConfidence === null) limitations.push("The source supplied no stance-classification confidence.");
-  if (ageHours === null) limitations.push("The observation window carried no end timestamp, so freshness could not be established.");
-
-  const breadthWeak = qualityScore !== null
-    && factors.sourceDiversity < BREADTH_FLOOR.SOURCE_DIVERSITY
-    && (factors.authorDiversity === null || factors.authorDiversity < BREADTH_FLOOR.AUTHOR_DIVERSITY);
-  if (breadthWeak) {
-    limitations.push("Discussion came from very few sources and authors, so the evidence cannot be rated strong however much of it there is.");
-  }
-
-  // Confidence attaches ONLY to a direction that was actually formed.
-  const directionFormed = sentimentResult
-    && sentimentResult.sentiment
-    && sentimentResult.sentiment !== CrowdSentiment.UNKNOWN;
-  const enoughSample = (sentimentResult?.sampleSize ?? 0) >= MIN_CLASSIFIED_OBSERVATIONS;
-  const sentimentConfidence = directionFormed && enoughSample && qualityScore !== null
-    ? Math.round(qualityScore * 100)
-    : null;
-
-  const rawBand = qualityScore === null ? QualityBand.INSUFFICIENT : band(qualityScore);
-  const finalBand = breadthWeak && rawBand === QualityBand.STRONG ? QualityBand.MODERATE : rawBand;
-
-  return Object.freeze({
-    evidenceKind: EvidenceKind.DIRECT_CROWD,
-    directEvidence: true,
-    qualityBand: finalBand,
-    breadthLimited: breadthWeak,
-    qualityScore,
-    factors,
-    sentimentConfidence,
-    limitations: Object.freeze(limitations),
-  });
+export function classifyFreshness(isoDate, now = new Date()) {
+  const days = ageInDays(isoDate, now);
+  if (days === null) return { status: Freshness.UNKNOWN, asOf: null, ageDays: null };
+  if (days <= FRESHNESS_THRESHOLDS.CURRENT_MAX_DAYS) return { status: Freshness.CURRENT, asOf: isoDate, ageDays: days };
+  if (days <= FRESHNESS_THRESHOLDS.AGEING_MAX_DAYS) return { status: Freshness.AGEING, asOf: isoDate, ageDays: days };
+  return { status: Freshness.STALE, asOf: isoDate, ageDays: days };
 }
 
 /**
- * Quality of ATTENTION evidence, which is PROXY by nature: published items
- * and market activity indicate that something is being discussed or traded,
- * never what anyone believes. Reported separately so a reader can see that
- * Conquest may know a lot about attention and nothing about sentiment.
- *
- * @param {object} attentionResult result of assessAttention() from Step 4
+ * Freshness of both evidence categories, plus the worst case across them,
+ * which is what confidence is later reduced against. Categories that were
+ * never obtained report UNKNOWN rather than STALE — we cannot describe the
+ * age of evidence we do not have.
  */
-export function assessAttentionEvidenceQuality(attentionResult) {
-  if (!attentionResult || attentionResult.attentionLevel === "UNKNOWN") {
-    return Object.freeze({
-      evidenceKind: EvidenceKind.PROXY,
-      directEvidence: false,
-      qualityBand: QualityBand.INSUFFICIENT,
-      qualityScore: null,
-      factors: Object.freeze({}),
-      limitations: Object.freeze(["No attention evidence was available to assess."]),
+export function assessFreshness(fundamentals, earnings, now = new Date()) {
+  const fundamentalsFresh = fundamentals && fundamentals.availability === EvidenceAvailability.PRESENT
+    ? classifyFreshness(fundamentals.asOf, now)
+    : { status: Freshness.UNKNOWN, asOf: null, ageDays: null };
+
+  // Prefer the reported date; fall back to the period end, which is older
+  // but real. Never invent one.
+  const earningsDate = earnings && earnings.availability === EvidenceAvailability.PRESENT
+    ? (earnings.mostRecentReportedDate || earnings.mostRecentPeriodEnd)
+    : null;
+  const earningsFresh = earningsDate
+    ? classifyFreshness(earningsDate, now)
+    : { status: Freshness.UNKNOWN, asOf: null, ageDays: null };
+
+  const rank = { [Freshness.CURRENT]: 0, [Freshness.AGEING]: 1, [Freshness.UNKNOWN]: 2, [Freshness.STALE]: 3 };
+  const considered = [fundamentalsFresh, earningsFresh].filter(f => f.status !== Freshness.UNKNOWN);
+  const overall = considered.length
+    ? considered.reduce((worst, f) => (rank[f.status] > rank[worst.status] ? f : worst)).status
+    : Freshness.UNKNOWN;
+
+  return Object.freeze({ fundamentals: fundamentalsFresh, earnings: earningsFresh, overall });
+}
+
+/* ------------------------------------------------------------------ */
+/* COMPLETENESS                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Not every fact matters equally. Growth figures are what Famine actually
+ * reasons from; margin, EPS level and P/E are context we deliberately do
+ * not score (see famineAnalysis.js). Weighting reflects that: losing a
+ * supplementary field should dent completeness, not destroy it.
+ */
+export const COMPLETENESS_WEIGHTS = Object.freeze({
+  revenueGrowthYoY: 3,
+  earningsGrowthYoY: 3,
+  earningsSurpriseHistory: 2,
+  companyNews: 2,
+  profitMargin: 1,
+  eps: 1,
+  peRatio: 1,
+});
+const TOTAL_WEIGHT = Object.values(COMPLETENESS_WEIGHTS).reduce((a, b) => a + b, 0); // 13
+
+export function assessCompleteness(fundamentals, earnings, news = null) {
+  const present = [];
+  const missing = [];
+  const unavailableCategories = [];
+  let obtained = 0;
+
+  const fundamentalsObtained = fundamentals && fundamentals.availability === EvidenceAvailability.PRESENT;
+  // Same rule as earnings below: only a genuine failure counts as unavailable.
+  if (!fundamentalsObtained && fundamentals?.availability !== EvidenceAvailability.EMPTY) {
+    unavailableCategories.push({
+      category: "fundamentals",
+      availability: (fundamentals && fundamentals.availability) || "ABSENT",
+      errorCode: (fundamentals && fundamentals.errorCode) || null,
     });
   }
 
-  const counts = attentionResult.counts || {};
-  const targetSpecific = counts.targetSpecific || 0;
-  const total = targetSpecific + (counts.contextual || 0);
+  for (const key of ["revenueGrowthYoY", "earningsGrowthYoY", "profitMargin", "eps", "peRatio"]) {
+    const fact = fundamentalsObtained ? fundamentals.facts[key] : null;
+    if (isPresent(fact)) { present.push(key); obtained += COMPLETENESS_WEIGHTS[key]; }
+    else missing.push({ field: key, reason: fact ? fact.reason : "CATEGORY_UNAVAILABLE" });
+  }
 
-  const factors = Object.freeze({
-    // Target-specific items are worth far more than basket mentions.
-    targetSpecificity: total ? clamp01(targetSpecific / total) : 0,
-    sourceDiversity: clamp01((attentionResult.sourceDiversity || 0) / 5),
-    // A single outlet dominating the results weakens the evidence.
-    sourceConcentration: clamp01(1 - (attentionResult.dominantSourceShare || 0)),
-    recency: total ? clamp01((counts.withinLast72h || 0) / total) : 0,
-  });
+  const earningsObtained = earnings && earnings.availability === EvidenceAvailability.PRESENT;
+  // EMPTY means the provider answered and the company genuinely has no
+  // reported quarters. That is a finding, not an outage, and must not be
+  // reported as an unavailable category — the same NO-EVIDENCE vs
+  // NEUTRAL-EVIDENCE distinction applied at category level. It still costs
+  // completeness below, via the absent surprise history.
+  const earningsUnavailable = !earningsObtained && earnings?.availability !== EvidenceAvailability.EMPTY;
+  if (earningsUnavailable) {
+    unavailableCategories.push({
+      category: "earnings",
+      availability: (earnings && earnings.availability) || "ABSENT",
+      errorCode: (earnings && earnings.errorCode) || null,
+    });
+  }
+  const usableSurprises = earningsObtained
+    ? earnings.periods.filter(p => isPresent(p.surprisePct)).length
+    : 0;
+  if (usableSurprises > 0) { present.push("earningsSurpriseHistory"); obtained += COMPLETENESS_WEIGHTS.earningsSurpriseHistory; }
+  else missing.push({ field: "earningsSurpriseHistory", reason: earningsObtained ? "NOT_REPORTED" : "CATEGORY_UNAVAILABLE" });
 
-  const qualityScore = Number(
-    (Object.values(factors).reduce((a, v) => a + v, 0) / Object.keys(factors).length).toFixed(4));
+  // News: a successful "the company is quiet" result COUNTS as obtained
+  // evidence — we looked and learned something. Only a provider failure
+  // costs completeness, which is the NO-EVIDENCE vs NEUTRAL distinction
+  // applied to news.
+  const newsAvailability = news ? news.availability : null;
+  const newsObtained = newsAvailability === "PRESENT" || newsAvailability === "NO_RECENT_NEWS";
+  if (newsObtained) { present.push("companyNews"); obtained += COMPLETENESS_WEIGHTS.companyNews; }
+  else {
+    missing.push({ field: "companyNews", reason: "CATEGORY_UNAVAILABLE" });
+    unavailableCategories.push({
+      category: "companyNews",
+      availability: newsAvailability || "ABSENT",
+      errorCode: (news && news.errorCode) || null,
+    });
+  }
 
   return Object.freeze({
-    evidenceKind: EvidenceKind.PROXY,
-    directEvidence: false,
-    qualityBand: band(qualityScore),
-    qualityScore,
-    factors,
-    limitations: Object.freeze([
-      "Attention evidence is a proxy: published items and market activity show that an asset is being discussed or traded, not what anyone believes about it.",
-      "This quality statement describes the attention evidence only. It says nothing about crowd sentiment, which requires a direct crowd source.",
-    ]),
+    score: Number((obtained / TOTAL_WEIGHT).toFixed(4)),
+    obtainedWeight: obtained,
+    totalWeight: TOTAL_WEIGHT,
+    present: Object.freeze(present),
+    missing: Object.freeze(missing),
+    unavailableCategories: Object.freeze(unavailableCategories),
+    usableSurpriseCount: usableSurprises,
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* DISAGREEMENT                                                        */
+/* ------------------------------------------------------------------ */
+
+export const MATERIAL_GROWTH = 0.05;   // ±5% YoY — the band used for "materially" up or down
+export const MATERIAL_SURPRISE = 3;    // ±3% EPS surprise — beyond routine rounding
+
+/**
+ * Detects evidence that materially disagrees with itself. Disagreement
+ * lowers confidence and is reported structurally; it does NOT force
+ * NEUTRAL, because a genuinely mixed picture with a clear net lean is
+ * still a lean.
+ */
+/**
+ * Detects evidence that materially disagrees with itself.
+ *
+ * ---------------------------------------------------------------------
+ * EVERY FLAG NAMES THE MEASURE IT REFERS TO
+ * ---------------------------------------------------------------------
+ * A previous version reduced both growth figures into generic
+ * `growthPositive` / `growthNegative` booleans with OR. A company with
+ * revenue up and earnings down satisfied BOTH at once, so the live TSLA
+ * analysis (+25.5% revenue, -3.0% earnings) emitted, side by side:
+ *
+ *     "Growth is positive, but 2 of the last 4 quarters missed..."
+ *     "Growth is negative, but 2 of the last 4 quarters beat..."
+ *
+ * — two contradictory statements, neither identifying which measure it
+ * meant, and a third flag on top, tripling the confidence penalty for
+ * substantially one phenomenon.
+ *
+ * Revenue growth and earnings growth are now kept as distinct, named
+ * dimensions, and the surprise comparison runs against exactly ONE
+ * measure, so contradictory pairs are impossible by construction.
+ *
+ * DIMENSIONAL APPROPRIATENESS: an EPS surprise is an EARNINGS measure, so
+ * it is compared against earnings growth whenever earnings growth is
+ * available. Revenue growth is used only as a fallback when earnings
+ * growth is missing, and the flag says so explicitly rather than silently
+ * treating revenue as a proxy for earnings.
+ */
+export function detectDisagreement(fundamentals, earnings) {
+  const conflicts = [];
+  const f = fundamentals && fundamentals.availability === EvidenceAvailability.PRESENT ? fundamentals.facts : null;
+
+  const rev = f ? factValue(f.revenueGrowthYoY) : null;
+  const earn = f ? factValue(f.earningsGrowthYoY) : null;
+  const pct = v => `${(v * 100).toFixed(1)}%`;
+
+  // --- 1. The two measures diverging from each other ------------------
+  if (rev !== null && earn !== null) {
+    if (rev > MATERIAL_GROWTH && earn < 0) {
+      conflicts.push({
+        type: "REVENUE_UP_EARNINGS_DOWN",
+        measures: ["revenueGrowthYoY", "earningsGrowthYoY"],
+        detail: `Revenue grew ${pct(rev)} year-on-year while earnings fell ${pct(earn)}.`,
+      });
+    }
+    if (rev < 0 && earn > MATERIAL_GROWTH) {
+      conflicts.push({
+        type: "REVENUE_DOWN_EARNINGS_UP",
+        measures: ["revenueGrowthYoY", "earningsGrowthYoY"],
+        detail: `Revenue fell ${pct(rev)} year-on-year while earnings grew ${pct(earn)}.`,
+      });
+    }
+  }
+
+  // --- 2. One named growth measure against reported execution ---------
+  const surprises = (earnings && earnings.availability === EvidenceAvailability.PRESENT ? earnings.periods : [])
+    .filter(p => isPresent(p.surprisePct)).map(p => factValue(p.surprisePct));
+  const beats = surprises.filter(s => s > MATERIAL_SURPRISE).length;
+  const misses = surprises.filter(s => s < -MATERIAL_SURPRISE).length;
+
+  // Exactly one measure is chosen, so "up" and "down" flags are mutually
+  // exclusive and can never both fire.
+  const usingEarnings = earn !== null;
+  const measureValue = usingEarnings ? earn : rev;
+  const measureKey = usingEarnings ? "earningsGrowthYoY" : "revenueGrowthYoY";
+  const measureName = usingEarnings ? "Earnings growth" : "Revenue growth";
+  const prefix = usingEarnings ? "EARNINGS_GROWTH" : "REVENUE_GROWTH";
+  const proxyNote = usingEarnings
+    ? ""
+    : " (earnings growth was unavailable, so revenue growth is used here and is a weaker comparison for an earnings surprise)";
+
+  if (measureValue !== null && surprises.length) {
+    if (measureValue > MATERIAL_GROWTH && misses >= 2) {
+      conflicts.push({
+        type: `${prefix}_UP_SURPRISES_DOWN`,
+        measures: [measureKey],
+        detail: `${measureName} is positive at ${pct(measureValue)} year-on-year, but ${misses} of the last ${surprises.length} reported quarters missed expectations${proxyNote}.`,
+      });
+    } else if (measureValue < 0 && beats >= 2) {
+      conflicts.push({
+        type: `${prefix}_DOWN_SURPRISES_UP`,
+        measures: [measureKey],
+        detail: `${measureName} is negative at ${pct(measureValue)} year-on-year, but ${beats} of the last ${surprises.length} reported quarters beat expectations${proxyNote}.`,
+      });
+    }
+  }
+
+  return Object.freeze(conflicts);
 }
