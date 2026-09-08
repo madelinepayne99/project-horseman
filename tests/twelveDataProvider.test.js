@@ -20,7 +20,7 @@ function fakeResponse({ status, jsonBody, textBody }) {
 test("TwelveDataProvider: a non-JSON 401/403 (e.g. a network/proxy block) is PROVIDER_UNAVAILABLE, never UNAUTHORISED", async () => {
   // This is the exact bug found via live debugging: this sandbox's own
   // egress proxy returns a 403 with a plain-text body when a host isn't
-  // allowlisted â€” that must never be reported to the user as "Twelve Data
+  // allowlisted — that must never be reported to the user as "Twelve Data
   // rejected the API key", because Twelve Data never saw the request.
   await withMockFetch(
     () => fakeResponse({ status: 403, textBody: "Host not in allowlist: api.twelvedata.com. Add this host to your network egress settings to allow access." }),

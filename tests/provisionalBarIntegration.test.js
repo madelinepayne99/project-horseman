@@ -60,7 +60,7 @@ test("provisional bar: volume average and vsAveragePct are null with an explicit
   assert.equal(war.volume.average, null);
   assert.equal(war.volume.vsAveragePct, null);
   assert.equal(war.volume.reason, "PROVISIONAL_BAR");
-  // The raw part-day figure is still reported â€” it is real, just incomplete.
+  // The raw part-day figure is still reported — it is real, just incomplete.
   assert.equal(war.volume.latest, 973020);
 });
 
@@ -83,7 +83,7 @@ test("provisional bar: live price and price-based indicators are preserved, not 
   assert.ok(typeof war.percentChange.oneDay === "number");
 });
 
-test("provisional bar: dataStatus stays COMPLETE â€” an open market is not degraded data", () => {
+test("provisional bar: dataStatus stays COMPLETE — an open market is not degraded data", () => {
   const war = buildWarInput(makeSeries(), { now: MIDSESSION });
 
   assert.equal(war.dataStatus, "COMPLETE");

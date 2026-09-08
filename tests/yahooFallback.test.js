@@ -16,7 +16,10 @@ const require = createRequire(import.meta.url);
 const ANALYSE_PATH = new URL("../api/analyse.js", import.meta.url).pathname;
 
 const DAY = 86400;
-const SESSION_OPEN_UTC = Math.floor(Date.parse("2026-09-02T13:30:00Z") / 1000);
+// Anchored to the current session rather than a fixed date: these fixtures
+// flow through the real handler, which uses the live clock for freshness.
+const SESSION_OPEN_UTC = Math.floor(
+  (Date.parse(new Date().toISOString().slice(0, 10) + "T13:30:00Z")) / 1000);
 
 // ---------------------------------------------------------------------
 // Fixtures
@@ -35,10 +38,13 @@ function legacyYahooArrays(n = 260) {
 function tdBody(mode = "complete") {
   const n = mode === "insufficient" ? 3 : mode === "partial" ? 60 : 320;
   const values = [];
+  // Anchored RELATIVE to now, because these cases run through the real
+  // handler, which correctly uses the live clock. A hard-coded anchor made
+  // the fixture drift into STALE_DATA as the calendar advanced, so the test
+  // failed for reasons unrelated to the fallback behaviour it exercises.
   // "stale" backdates everything well past the 96h freshness window.
-  const anchor = mode === "stale"
-    ? Date.parse("2026-08-01T00:00:00Z")
-    : Date.parse("2026-09-02T00:00:00Z");
+  const today = Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+  const anchor = mode === "stale" ? today - 40 * DAY * 1000 : today;
   for (let i = 0; i < n; i++) {
     const c = 320 - i * 0.05 + (i % 4 === 0 ? 0.3 : -0.1);
     values.push({
