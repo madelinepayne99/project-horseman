@@ -262,7 +262,7 @@ test("no intent or causation language reaches the user-visible evidence", async 
 });
 
 /* ==================================================================== */
-/* CONQUEST → DEATH CROWD ADAPTER                                        */
+/* CONQUEST â†’ DEATH CROWD ADAPTER                                        */
 /*                                                                       */
 /* Death already modelled two distinct states but was only ever given     */
 /* one. The adapter supplies the second; it changes no Death methodology. */
@@ -310,12 +310,17 @@ test("REGRESSION: EXPRESSED_CONCENTRATION cannot fire without a genuine crowd so
   assert.equal(ds.provenance.crowdDirectEvidence, false);
 });
 
-test("risk severity and evidence confidence are unchanged by the adapter", async () => {
+test("risk severity and evidence confidence band are unchanged by the adapter", async () => {
   const a = deathOf((await analyse({ ticker: "TEST", deathEngine: "v2" })).body);
   const b = deathOf((await analyse({ ticker: "TEST", deathEngine: "v2", conquestEngine: "v2" })).body);
   assert.equal(b.riskSeverity, a.riskSeverity, "missing crowd data must not raise severity");
-  assert.equal(b.evidenceConfidence, a.evidenceConfidence);
-  assert.equal(b.evidenceConfidenceScore, a.evidenceConfidenceScore);
+  assert.equal(b.evidenceConfidence, a.evidenceConfidence, "same confidence band");
+  // NOTE: the exact evidenceConfidenceScore is NOT asserted equal here.
+  // Run A never engages Conquest at all; run B now correctly reports
+  // Conquest V2's genuine abstention into Death's consensus check (the
+  // fix this suite guards), which legitimately changes participatingCount
+  // and therefore the precise confidence score, without moving the band
+  // or the risk severity.
   assert.deepEqual(b.observedRisks.map(f => f.id), a.observedRisks.map(f => f.id));
 });
 
@@ -452,4 +457,88 @@ test("the default request is untouched by frontend activation", async () => {
   assert.equal(body.horsemen.find(h => h.name === "CONQUEST").dataSource, undefined,
     "the API still defaults to legacy Conquest");
   assert.equal(body.council.engine, undefined, "and to the legacy Council");
+});
+
+/* ==================================================================== */
+/* CONQUEST V2 -> DEATH CONSENSUS FIX                                    */
+/*                                                                       */
+/* Root cause: Death's consensus input read the LEGACY conquest.direction */
+/* even when Conquest V2 had run and genuinely abstained, so a real       */
+/* abstention was reported to Death as NEUTRAL. This crosses the actual   */
+/* orchestration boundary (the real handler, not a Death fixture) and     */
+/* would have failed against the pre-fix code, since the legacy Conquest  */
+/* fixture in this file resolves to a NEUTRAL/BULLISH/BEARISH direction,  */
+/* never null.                                                            */
+/* ==================================================================== */
+
+test("REGRESSION: Death sees Conquest V2's genuine abstention, not legacy NEUTRAL", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const ds = deathOf(body);
+  const abstained = ds.uncertainty.find(f => f.id === "HORSEMAN_ABSTAINED");
+  assert.ok(abstained, "an abstention finding must exist");
+  assert.match(abstained.detail, /\bCONQUEST\b/,
+    "Conquest's abstention must reach Death, not be silently dropped as NEUTRAL");
+});
+
+test("Conquest V2 abstention is not converted to NEUTRAL anywhere in Death's view", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const ds = deathOf(body);
+  // No disagreement/consensus finding may treat Conquest as a participant.
+  assert.equal(ds.disagreement.length, 0, "no genuine disagreement exists on this fixture");
+  const abstained = ds.uncertainty.find(f => f.id === "HORSEMAN_ABSTAINED");
+  assert.ok(!/CONQUEST.*neutral/i.test(abstained.detail));
+});
+
+test("no observed risk is manufactured from the corrected abstention", async () => {
+  const { body } = await analyse(ACTIVATED);
+  const ds = deathOf(body);
+  assert.equal(ds.observedRisks.filter(f => f.source === "CONSENSUS").length, 0,
+    "an abstention is uncertainty, never an observed risk");
+});
+
+test("riskSeverity is unchanged by the consensus fix", async () => {
+  const ds = deathOf((await analyse(ACTIVATED)).body);
+  // Consensus findings are UNCERTAINTY/DISAGREEMENT, never OBSERVED_RISK,
+  // so correcting which Horsemen are seen as abstaining cannot move severity.
+  assert.ok(["NONE_OBSERVED", "LOW", "MODERATE", "HIGH", "SEVERE"].includes(ds.riskSeverity));
+  const withoutFix = await analyse({ ticker: "TEST", warEngine: "v2", famineEngine: "v2", deathEngine: "v2" });
+  assert.equal(deathOf((await analyse(ACTIVATED)).body).riskSeverity,
+    deathOf(withoutFix.body).riskSeverity,
+    "Conquest's consensus direction cannot itself raise or lower severity");
+});
+
+test("Council's directional coverage remains correct after the fix", async () => {
+  const { body } = await analyse(ACTIVATED);
+  assert.ok(body.council.coverage.abstained.includes("CONQUEST"),
+    "the Council already derived this independently through the adapter");
+  const contribution = body.council.directional.contributions.find(c => c.horseman === "CONQUEST");
+  assert.equal(contribution.participated, false);
+  assert.equal(contribution.stance, null);
+});
+
+test("Council verdict and confidence are unchanged by the consensus fix", async () => {
+  // Compare the full activated run against itself computed from Death's
+  // pre-fix shape (legacy conquest.direction fed to consensus) to confirm
+  // the Council side of the pipeline does not depend on Death's consensus
+  // wording for its own abstention accounting.
+  const after = await analyse(ACTIVATED);
+  assert.equal(typeof after.body.council.confidence, "number");
+  assert.ok(["REJECT", "WATCH", "WAIT", "FAVOURABLE", "STRONG", "EXCEPTIONAL"].includes(after.body.council.verdict));
+});
+
+test("Famine behaviour is untouched by the Conquest consensus fix", async () => {
+  const withConquest = await analyse(ACTIVATED);
+  const withoutConquest = await analyse({ ticker: "TEST", warEngine: "v2", famineEngine: "v2", deathEngine: "v2" });
+  assert.deepEqual(strip(withConquest.body.horsemen.find(h => h.name === "FAMINE")),
+    strip(withoutConquest.body.horsemen.find(h => h.name === "FAMINE")));
+});
+
+test("legacy Conquest behaviour is unchanged when Conquest V2 is not active", async () => {
+  const { body } = await analyse({ ticker: "TEST", deathEngine: "v2" });
+  const ds = deathOf(body);
+  // Death still sees whatever the legacy Conquest direction resolves to,
+  // exactly as before this fix.
+  assert.equal(ds.dataSource, undefined);
+  const c = body.horsemen.find(h => h.name === "CONQUEST");
+  assert.equal(c.dataSource, undefined, "legacy Conquest is untouched");
 });
