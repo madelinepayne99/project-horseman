@@ -17,6 +17,7 @@ function fakeClock(start = Date.parse("2026-09-04T09:00:00Z")) {
   let now = start;
   const clock = () => now;
   clock.advanceHours = h => { now += h * HOUR; };
+  clock.advanceMs = ms => { now += ms; };
   return clock;
 }
 
@@ -313,7 +314,7 @@ test("expired entries remain readable in the store even though the decorator ref
 });
 
 /* ==================================================================== */
-/* REVIEW FINDINGS — deep immutability, single flight, key integrity     */
+/* REVIEW FINDINGS â€” deep immutability, single flight, key integrity     */
 /* ==================================================================== */
 
 import { makeFundamentalsSnapshot } from "../src/schema/fundamentals.js";
@@ -338,7 +339,7 @@ test("deepFreeze() freezes nested objects and arrays and tolerates cycles", () =
   assert.ok(Object.isFrozen(cyclic.a.b[1]));
 });
 
-test("cached payloads are DEEPLY immutable — nested vendor metadata cannot be tampered with", async () => {
+test("cached payloads are DEEPLY immutable â€” nested vendor metadata cannot be tampered with", async () => {
   const clock = fakeClock();
   const provider = {
     providerId: "alphavantage", calls: { fundamentals: 0 },
@@ -396,7 +397,7 @@ test("two simultaneous misses for one key call the provider ONCE (single flight)
   assert.equal(calls, 1, "quota is scarce: one in-flight request must serve both callers");
   const outcomes = [r1.source.cacheState, r2.source.cacheState].sort();
   assert.deepEqual(outcomes, [CacheOutcome.COALESCED, CacheOutcome.MISS]);
-  // A joiner is a live result, not a cache hit — it must not claim otherwise.
+  // A joiner is a live result, not a cache hit â€” it must not claim otherwise.
   assert.equal(r1.source.cached, false);
   assert.equal(r2.source.cached, false);
 });
@@ -420,7 +421,7 @@ test("simultaneous requests for DIFFERENT keys are not coalesced together", asyn
   assert.equal(r2.ticker, "TSLA");
 });
 
-test("a failed in-flight request is not sticky — later callers retry", async () => {
+test("a failed in-flight request is not sticky â€” later callers retry", async () => {
   let calls = 0;
   let shouldFail = true;
   const provider = {
@@ -432,8 +433,8 @@ test("a failed in-flight request is not sticky — later callers retry", async (
     },
     async getEarningsHistory() { return null; },
   };
-  const cached = new CachedFundamentalsProvider({ provider, clock: fakeClock() });
-
+  const clock = fakeClock();
+  const cached = new CachedFundamentalsProvider({ provider, clock });
   const a = cached.getFundamentals("AAPL").catch(e => e);
   const b = cached.getFundamentals("AAPL").catch(e => e);
   const [e1, e2] = await Promise.all([a, b]);
@@ -441,8 +442,12 @@ test("a failed in-flight request is not sticky — later callers retry", async (
   assert.equal(e1.code, FundamentalsErrorCodes.RATE_LIMITED);
   assert.equal(e2.code, FundamentalsErrorCodes.RATE_LIMITED, "the joiner sees the same real failure");
 
-  // The in-flight entry must have been cleared.
+  // The in-flight entry must have been cleared. Advance past the short
+  // remembered rate-limit window (see the dedicated tests for that
+  // mechanism) so this proves genuine provider retry, not the window
+  // still being active.
   shouldFail = false;
+  clock.advanceHours(1);
   const ok = await cached.getFundamentals("AAPL");
   assert.equal(calls, 2, "a later attempt genuinely retries");
   assert.equal(ok.ticker, "AAPL");
@@ -497,4 +502,129 @@ test("evidence kinds cannot be served across each other", async () => {
   assert.equal(store.get("alphavantage:earnings:AAPL").state, "MISS");
   await cached.getEarningsHistory("AAPL");
   assert.equal(provider.calls.earnings, 1, "earnings had to be fetched separately");
+});
+
+/* ==================================================================== */
+/* SHORT-LIVED RATE-LIMIT STATE (development reliability)                */
+/*                                                                        */
+/* Distinct from ordinary caching: no fundamentals/earnings PAYLOAD is    */
+/* ever cached here. This remembers only that the provider is currently   */
+/* rate-limited, for a short bounded window, so repeated requests during  */
+/* that window do not spend more of an already-exhausted quota.           */
+/* ==================================================================== */
+
+const RATE_LIMIT_TTL_MS = 60 * 1000; // must match CachedFundamentalsProvider.js
+const rateLimitErr = () => new FundamentalsError("Alpha Vantage rate limit exceeded", FundamentalsErrorCodes.RATE_LIMITED);
+
+test("1: the first RATE_LIMITED request calls the underlying provider", async () => {
+  const provider = fakeProvider({ failFundamentals: rateLimitErr() });
+  const { cached } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"), { code: FundamentalsErrorCodes.RATE_LIMITED });
+  assert.equal(provider.calls.fundamentals, 1);
+});
+
+test("2: a repeated request during the short window does NOT call the provider again", async () => {
+  const provider = fakeProvider({ failFundamentals: rateLimitErr() });
+  const { cached, clock } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  assert.equal(provider.calls.fundamentals, 1);
+
+  clock.advanceMs(1000); // 1s later, well inside the 60s window
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  assert.equal(provider.calls.fundamentals, 1, "the provider must not be called a second time");
+
+  // A different ticker is affected too â€” Alpha Vantage's cap is account-
+  // wide, not per-symbol, and OVERVIEW being limited for one ticker means
+  // it is limited for every ticker.
+  await assert.rejects(() => cached.getFundamentals("MSFT"));
+  assert.equal(provider.calls.fundamentals, 1, "the marker applies across tickers, matching the real quota");
+});
+
+test("3-4: the repeated result remains RATE_LIMITED, never successful fundamentals", async () => {
+  const provider = fakeProvider({ failFundamentals: rateLimitErr() });
+  const { cached, clock } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  clock.advanceMs(1000);
+  const err = await cached.getFundamentals("AAPL").catch(e => e);
+  assert.ok(err instanceof Error);
+  assert.equal(err.code, FundamentalsErrorCodes.RATE_LIMITED);
+  // It must never resolve â€” there is no code path by which the caller
+  // could mistake this for a value, let alone a successful one.
+});
+
+test("5: after the bounded window expires, the provider is attempted again", async () => {
+  const provider = fakeProvider({ failFundamentals: rateLimitErr() });
+  const { cached, clock } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  assert.equal(provider.calls.fundamentals, 1);
+
+  clock.advanceMs(RATE_LIMIT_TTL_MS + 1); // just past the window
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  assert.equal(provider.calls.fundamentals, 2, "the window has expired, so the provider is contacted again");
+});
+
+test("6: a successful response is not contaminated by an earlier expired rate-limit marker", async () => {
+  let fail = true;
+  const provider = {
+    providerId: "alphavantage",
+    calls: { fundamentals: 0 },
+    async getFundamentals(t) {
+      this.calls.fundamentals++;
+      if (fail) throw rateLimitErr();
+      return fundamentals({ ticker: t });
+    },
+    async getEarningsHistory() { return null; },
+  };
+  const { cached, clock } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+
+  clock.advanceMs(RATE_LIMIT_TTL_MS + 1);
+  fail = false;
+  const snap = await cached.getFundamentals("AAPL");
+  assert.equal(snap.ticker, "AAPL");
+  assert.equal(snap.source.cached, false);
+  assert.equal(provider.calls.fundamentals, 2);
+
+  // And that success is now genuinely cached for a normal request.
+  const second = await cached.getFundamentals("AAPL");
+  assert.equal(second.source.cached, true);
+  assert.equal(provider.calls.fundamentals, 2, "the real cache hit, not another provider call");
+});
+
+test("7: fundamentals and earnings rate-limit state are isolated from each other", async () => {
+  const provider = fakeProvider({ failFundamentals: rateLimitErr() }); // earnings NOT failing
+  const { cached } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  assert.equal(provider.calls.fundamentals, 1);
+
+  // Earnings must be entirely unaffected by the fundamentals marker.
+  const earn = await cached.getEarningsHistory("AAPL");
+  assert.equal(provider.calls.earnings, 1);
+  assert.equal(earn.ticker, "AAPL");
+});
+
+test("the remembered marker never becomes cached evidence for a real fundamentals lookup", async () => {
+  const provider = fakeProvider({ failFundamentals: rateLimitErr() });
+  const { cached, clock } = makeCached(provider);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+  clock.advanceMs(1000);
+  await assert.rejects(() => cached.getFundamentals("AAPL"));
+
+  // The store must hold no entry under the real fundamentals cache key â€”
+  // only the internally-namespaced marker key.
+  const store = new MemoryCacheStore({ clock });
+  // (separate store instance; this asserts the PRODUCTION store used by
+  // `cached` was never given a fundamentals-shaped payload for AAPL)
+  const realKey = "alphavantage:fundamentals:AAPL";
+  const lookup = cached.store.get(realKey);
+  assert.equal(lookup.state, CacheState.MISS, "no fundamentals payload was ever written for the failed ticker");
+});
+
+test("single-flight coalescing is unaffected when no rate-limit marker is active", async () => {
+  const provider = fakeProvider();
+  const { cached } = makeCached(provider);
+  const [a, b] = await Promise.all([cached.getFundamentals("AAPL"), cached.getFundamentals("AAPL")]);
+  assert.equal(provider.calls.fundamentals, 1, "unchanged: two simultaneous misses still call the provider once");
+  assert.equal(a.ticker, "AAPL");
+  assert.equal(b.ticker, "AAPL");
 });
