@@ -13,14 +13,14 @@ async function alpha(fn,t){const key=String(process.env.ALPHA_VANTAGE_API_KEY||'
 function ctype(s=''){s=s.toLowerCase();if(/rumou?r|reportedly|unconfirmed|speculation/.test(s))return'RUMOUR';if(/forecast|expects?|could|may |might|target|outlook|predict/.test(s))return'PREDICTION';if(/why |should |buy |sell |undervalued|overvalued|opinion/.test(s))return'OPINION';return'REPORTED CLAIM'}
 function evidence(claim,type,source,reliability,supports='NEUTRAL',published=null,note=''){return{claim,type,source,reliability,reliabilityScore:{'VERY HIGH':90,HIGH:78,MEDIUM:60,LOW:38}[reliability]||50,supports,published,freshness:published?new Date(published).toLocaleDateString('en-GB'):'Not dated',confirmed:false,confirmation:'Not independently confirmed on this run.',possibleBias:note||'Check the original source for context.'}}
 /* ---------------------------------------------------------------------
- * FAMINE V2 — opt-in wiring (?famineEngine=v2)
+ * FAMINE V2 â€” opt-in wiring (?famineEngine=v2)
  *
  * Built ONCE at module scope. That matters: MemoryCacheStore lives inside
  * CachedFundamentalsProvider, so it only survives between requests if the
  * provider itself survives. Constructing it per-request would give a cache
  * that is empty every single time.
  *
- * The cached decorator wraps AlphaVantageProvider deliberately — wiring the
+ * The cached decorator wraps AlphaVantageProvider deliberately â€” wiring the
  * raw provider here would silently discard the whole caching layer.
  * ------------------------------------------------------------------- */
 let _famineV2 = null;
@@ -78,7 +78,7 @@ function adaptFamineV2({ assessment, fundamentals, earningsHistory, news }){
     : null;
 
   return {
-    icon:'🥀', name:'FAMINE', label:'COMPANY & NEWS',
+    icon:'ðŸ¥€', name:'FAMINE', label:'COMPANY & NEWS',
     simple:'Are the company numbers and current news helping or hurting it?',
     // May be UNKNOWN, and confidence may be null. Neither is fabricated to
     // make the legacy schema look complete.
@@ -115,7 +115,7 @@ module.exports=async function(req,res){
   const chartP=fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1y&interval=1d`);
   const newsP=fetchJson(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=1&newsCount=10`).catch(()=>({news:[]}));
   // Famine V2 is OPT-IN ONLY. Absent, "v1" and any unrecognised value all
-  // keep the current production Famine path — deliberately the opposite
+  // keep the current production Famine path â€” deliberately the opposite
   // posture from War V2, which defaults on.
   const useFamineV2=String(req.query?.famineEngine||'').trim().toLowerCase()==='v2';
   // Council V2 is OPT-IN ONLY, like Famine V2. Absent, "v1" and any
@@ -138,7 +138,7 @@ module.exports=async function(req,res){
   const q=cr.indicators?.quote?.[0]||{},closes=(q.close||[]).filter(Number.isFinite),vols=(q.volume||[]).filter(Number.isFinite);if(closes.length<50)return res.status(502).json({error:'Not enough price history returned.'});
   const last=closes.at(-1),s20=sma(closes,20),s50=sma(closes,50),s200=sma(closes,200),r14=rsi(closes),ret20=(last/closes.at(-21)-1)*100,vr=vols.length>21?vols.at(-1)/avg(vols.slice(-21,-1)):null;
   const ch20=pctChanges(closes,20),realizedVol=stdev(ch20),absMoveAvg=avg(ch20.map(Math.abs)),lastMove=closes.length>1?(last/closes.at(-2)-1)*100:0;
-  let ws=0,we=[];for(const [label,v] of [['20-day',s20],['50-day',s50],['200-day',s200]])if(v){ws+=last>v?1:-1;we.push(`Price ${last>v?'above':'below'} ${label} average (${v.toFixed(2)})`)}ws+=ret20>3?1:ret20<-3?-1:0;we.push(`20-session change ${ret20.toFixed(1)}%`);if(r14){ws+=r14>70?-1:r14<30?1:0;we.push(`RSI ${r14.toFixed(1)}`)}if(vr)we.push(`Latest volume ${vr.toFixed(2)}× recent average`);
+  let ws=0,we=[];for(const [label,v] of [['20-day',s20],['50-day',s50],['200-day',s200]])if(v){ws+=last>v?1:-1;we.push(`Price ${last>v?'above':'below'} ${label} average (${v.toFixed(2)})`)}ws+=ret20>3?1:ret20<-3?-1:0;we.push(`20-session change ${ret20.toFixed(1)}%`);if(r14){ws+=r14>70?-1:r14<30?1:0;we.push(`RSI ${r14.toFixed(1)}`)}if(vr)we.push(`Latest volume ${vr.toFixed(2)}Ã— recent average`);
   // --- WAR ENGINE SELECTION ---------------------------------------------
   // V2 (validated Twelve Data pipeline) is the DEFAULT engine.
   // Only an explicit ?warEngine=v1 selects the legacy Yahoo-derived War;
@@ -149,19 +149,19 @@ module.exports=async function(req,res){
   // V2 rebuilds War's FACTS from the validated pipeline while reusing the
   // EXACT scoring rules above; War's reasoning is not redesigned here.
   // Conquest still uses Yahoo's volume ratio (vr), realizedVol and
-  // absMoveAvg — all intentionally untouched.
+  // absMoveAvg â€” all intentionally untouched.
   let warMeta=null,warLimits=['Yahoo market data can be delayed.'],warConfidenceOverride=null;
   // M2/M3/M4: the authoritative technical facts object from the V2
   // pipeline. Death and Conquest consume THIS (shared facts), never War's
   // evidence strings, so War interprets and they cross-examine the same
   // underlying numbers.
   let warFactsV2=null,normalisedSeries=null,useWarV2=String(req.query?.warEngine||'').trim().toLowerCase()!=='v1';
-  // Fallback fires ONLY for these codes — a hard failure to obtain any
+  // Fallback fires ONLY for these codes â€” a hard failure to obtain any
   // series at all. Everything else (NOT_FOUND, UNAUTHORISED,
   // MALFORMED_RESPONSE, UNSUPPORTED_SECURITY, INSUFFICIENT_EVIDENCE, or any
   // plain Error) is information, not an outage, and must NOT be routed
   // around. Data-quality states (PARTIAL_DATA, STALE_DATA, provisional
-  // bars) never reach here at all — they are successful results, not throws.
+  // bars) never reach here at all â€” they are successful results, not throws.
   const APPROVED_FALLBACK_CODES=['PROVIDER_UNAVAILABLE','RATE_LIMITED','SERVER_MISCONFIGURED'];
   let primaryFailureCode=null;
   if(useWarV2){
@@ -209,14 +209,14 @@ module.exports=async function(req,res){
       if(w.rsi14!=null){ws+=w.rsi14>70?-1:w.rsi14<30?1:0;we.push(`RSI ${w.rsi14.toFixed(1)}`)}
       // Volume stays UNSCORED (as in v1) and is omitted entirely when the
       // bar is still forming, per the provisional-bar policy.
-      if(w.volume?.vsAveragePct!=null)we.push(`Latest volume ${(1+w.volume.vsAveragePct/100).toFixed(2)}× recent average`);
+      if(w.volume?.vsAveragePct!=null)we.push(`Latest volume ${(1+w.volume.vsAveragePct/100).toFixed(2)}Ã— recent average`);
       warMeta={engine:'v2',provider:warProviderLabel,simulated:w.source?.simulated??null,dataStatus:w.dataStatus,latestDataTimestamp:w.latestDataTimestamp||null,latestBarIsProvisional:w.latestBarIsProvisional??null,candlesUsed:w.dataPointsUsed??null,calculationVersion:w.debug?.calculationVersion||null};
       if(fallbackReason){warMeta.fallbackFrom='twelvedata';warMeta.fallbackReason=fallbackReason}
       warLimits=[`Technical evidence from ${warProviderLabel} (War engine v2).`];
       // The frontend renders limits but not dataSource, so this line is the
       // only place a user can see that a substitution happened.
       if(fallbackReason)warLimits.push('Primary market-data provider unavailable; technical analysis used Yahoo fallback data.');
-      if(w.latestBarIsProvisional)warLimits.push('Latest bar is still forming — volume comparison withheld until the session settles.');
+      if(w.latestBarIsProvisional)warLimits.push('Latest bar is still forming â€” volume comparison withheld until the session settles.');
       if(w.dataStatus!=='COMPLETE')warLimits.push(`Data status: ${w.dataStatus}.`);
     }catch(err){
       // Honest degradation: no silent fallback to the v1/Yahoo numbers.
@@ -246,11 +246,11 @@ module.exports=async function(req,res){
   const positiveHeads=news.filter(x=>x.tone>0).length,negativeHeads=news.filter(x=>x.tone<0).length,toneSplit=positiveHeads>0&&negativeHeads>0;
   let attention=0,crowding=0;
   // --- M3: Conquest's one-day move input --------------------------------
-  // V1 (default): unchanged — the legacy Yahoo-derived lastMove.
+  // V1 (default): unchanged â€” the legacy Yahoo-derived lastMove.
   // V2: the authoritative percentChange.oneDay from the shared facts
   // object (not War's output or evidence text), so Conquest and War cannot
   // describe the same session's move differently. No fallback to lastMove
-  // if the authoritative value is missing — it is treated as unavailable.
+  // if the authoritative value is missing â€” it is treated as unavailable.
   // Scope note: absMoveAvg (the baseline it is compared against), vr,
   // realizedVol, crowding and news logic are deliberately untouched here.
   let conquestLastMove=lastMove,conquestMoveMissing=false;
@@ -282,17 +282,17 @@ module.exports=async function(req,res){
   const ce=[
     `News attention: ${attentionLabel} (${news24} headline(s) in 24h; ${news72} in 72h)`,
     `Headline mood: ${nt>0?'more positive':nt<0?'more negative':'mixed/neutral'} (${positiveHeads} positive / ${negativeHeads} negative)`,
-    `Trading attention: ${vr!=null?`${vr.toFixed(2)}× normal volume`:'volume comparison unavailable'}`,
+    `Trading attention: ${vr!=null?`${vr.toFixed(2)}Ã— normal volume`:'volume comparison unavailable'}`,
     `Recent volatility: ${realizedVol.toFixed(2)}% daily-move standard deviation`,
     `Crowding risk: ${crowdLabel}`,
-    toneSplit?'Bullish and bearish headlines are both present — crowd opinion is split.':'No strong two-sided headline split detected.'
+    toneSplit?'Bullish and bearish headlines are both present â€” crowd opinion is split.':'No strong two-sided headline split detected.'
   ];
   ev.push(evidence(`Conquest observed ${attentionLabel.toLowerCase()} attention using news recency, trading volume and recent volatility`,'FACT','Horseman crowd-attention model','MEDIUM','NEUTRAL',new Date().toISOString(),'This is a derived attention signal, not proof of investor intent.'));
-  if(vr!=null)ev.push(evidence(`Latest trading volume was ${vr.toFixed(2)}× its recent average`,'FACT','Yahoo Finance chart data','HIGH','NEUTRAL',new Date().toISOString(),'Unusual volume can reflect many causes; Conquest uses it only as an attention signal.'));
-  const war={icon:'⚔️',name:'WAR',label:'PRICE & CHART',simple:'Is the share price looking strong or weak?',direction:dir(ws),confidence:clamp(55+Math.abs(ws)*7,50,90),checked:['1 year price history','20/50/200-day averages','RSI','momentum','volume'],evidence:we,limits:warLimits};
+  if(vr!=null)ev.push(evidence(`Latest trading volume was ${vr.toFixed(2)}Ã— its recent average`,'FACT','Yahoo Finance chart data','HIGH','NEUTRAL',new Date().toISOString(),'Unusual volume can reflect many causes; Conquest uses it only as an attention signal.'));
+  const war={icon:'âš”ï¸',name:'WAR',label:'PRICE & CHART',simple:'Is the share price looking strong or weak?',direction:dir(ws),confidence:clamp(55+Math.abs(ws)*7,50,90),checked:['1 year price history','20/50/200-day averages','RSI','momentum','volume'],evidence:we,limits:warLimits};
   if(warConfidenceOverride!=null)war.confidence=warConfidenceOverride;
   if(warMeta)war.dataSource=warMeta;
-  const famine={icon:'🥀',name:'FAMINE',label:'COMPANY & NEWS',simple:'Are the company numbers and current news helping or hurting it?',direction:dir(fs),confidence:clamp(48+Math.abs(fs)*7+(ovOK?8:0),42,90),checked:['Alpha Vantage fundamentals','earnings history','recent news'],evidence:fe.length?fe:['No fundamental evidence returned.'],limits:fl.length?fl:['Fundamentals are historical evidence, not a forecast.']};
+  const famine={icon:'ðŸ¥€',name:'FAMINE',label:'COMPANY & NEWS',simple:'Are the company numbers and current news helping or hurting it?',direction:dir(fs),confidence:clamp(48+Math.abs(fs)*7+(ovOK?8:0),42,90),checked:['Alpha Vantage fundamentals','earnings history','recent news'],evidence:fe.length?fe:['No fundamental evidence returned.'],limits:fl.length?fl:['Fundamentals are historical evidence, not a forecast.']};
   // --- Famine V2 substitution (opt-in) --------------------------------
   // The legacy famine object above is computed but DISCARDED under V2.
   // V2 is never silently replaced by it: if V2 degrades, the degraded V2
@@ -305,14 +305,14 @@ module.exports=async function(req,res){
   // ovOK is Death's "structured fundamentals unavailable" input. Under V2 the
   // legacy overview was never fetched, so it is mapped truthfully from V2's
   // own availability rather than left falsely false. Compatibility wiring
-  // only — Death's rule and threshold are untouched.
+  // only â€” Death's rule and threshold are untouched.
   const ovOKEffective=useFamineV2
     ? (famineV2.fundamentals.availability==='PRESENT')
     : ovOK;
-  const conquest={icon:'👑',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:conquestLimits,signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
+  const conquest={icon:'ðŸ‘‘',name:'CONQUEST',label:'PEOPLE & HYPE',simple:'Is attention around the stock calm, fearful, excited or crowded?',direction:dir(cs),confidence:clamp(48+Math.min(attention,5)*5+Math.min(news.length,8)+Math.abs(nt)*2-(toneSplit?5:0),42,84),checked:['news-attention acceleration','headline mood and disagreement','unusual trading volume','recent volatility','large short-term moves','crowding indicators'],evidence:ce,limits:conquestLimits,signals:{attention:attentionLabel,crowding:crowdLabel,news24,news72,volumeRatio:vr,realizedVolatility:realizedVol,headlineBalance:{positive:positiveHeads,negative:negativeHeads,split:toneSplit}}};
   const dirs=[war.direction,famineOut.direction,conquest.direction],bull=dirs.filter(x=>x==='BULLISH').length,bear=dirs.filter(x=>x==='BEARISH').length,neutral=3-bull-bear,disagree=bull>0&&bear>0;
   // --- M2: Death's technical inputs -------------------------------------
-  // V1 (default): unchanged — Death reads the legacy Yahoo-derived values.
+  // V1 (default): unchanged â€” Death reads the legacy Yahoo-derived values.
   // V2: Death reads the SAME authoritative facts War interpreted, so the
   // two can never cite different RSI values for the same stock. There is
   // deliberately no fallback to r14/ret20 here: if the authoritative facts
@@ -325,10 +325,10 @@ module.exports=async function(req,res){
     deathTechMissing=(deathRsi==null||deathRet20==null);
   }
   let risk=0,de=[];if(deathRsi!=null&&deathRsi>75){risk++;de.push('RSI is very high')}if(deathRet20!=null&&Math.abs(deathRet20)>15){risk++;de.push('Large recent price move')}if(deathTechMissing){risk++;de.push('Authoritative technical evidence unavailable')}if(disagree){risk+=2;de.push('Horsemen directly disagree')}if(!ovOKEffective){risk++;de.push('Structured fundamentals unavailable')}if(crowding>=3){risk+=2;de.push('Conquest detected high crowding risk')}else if(crowding>=1){risk++;de.push('Conquest detected elevated crowding risk')};
-  const death={icon:'☠️',name:'DEATH',label:'DANGER',simple:'What could go wrong, and is waiting safer?',direction:risk>=4?'BEARISH':risk>=2?'NEUTRAL':'BULLISH',confidence:clamp(58+risk*6,55,88),checked:['stretched price','large recent moves','missing data','Horseman disagreement','Conquest crowding signals'],evidence:de.length?de:['No major connected-data risk flag triggered.'],limits:['Unknown events can still occur.']};
+  const death={icon:'â˜ ï¸',name:'DEATH',label:'DANGER',simple:'What could go wrong, and is waiting safer?',direction:risk>=4?'BEARISH':risk>=2?'NEUTRAL':'BULLISH',confidence:clamp(58+risk*6,55,88),checked:['stretched price','large recent moves','missing data','Horseman disagreement','Conquest crowding signals'],evidence:de.length?de:['No major connected-data risk flag triggered.'],limits:['Unknown events can still occur.']};
   // A Horseman that reached no assessment reports confidence null. avg()
   // would coerce that to 0 and silently drag the Council's confidence down
-  // by a third — the exact "missing becomes zero" bug Famine V2 exists to
+  // by a third â€” the exact "missing becomes zero" bug Famine V2 exists to
   // remove. Nulls are therefore excluded from the average rather than
   // counted as zero. On the default path no confidence is ever null, so
   // this is byte-identical to previous behaviour there.
@@ -361,11 +361,11 @@ module.exports=async function(req,res){
     for(const f of a.findings)ev.push(f.statement);
     if(!ev.length)ev.push('No behavioural observation could be measured on this run.');
     conquestOut={
-      icon:'👑',name:'CONQUEST',label:'BEHAVIOUR',
+      icon:'ðŸ‘‘',name:'CONQUEST',label:'BEHAVIOUR',
       simple:'How are market participants behaving, and how have they behaved in comparable conditions before?',
       // Conquest V2 reports behaviour, not a market direction. Crowd
       // sentiment is the only directional field and requires a crowd
-      // provider, which does not exist yet — so it abstains.
+      // provider, which does not exist yet â€” so it abstains.
       direction:null,confidence:null,
       checked:['participation and movement vs this asset\'s own history','behavioural regimes','comparable historical episodes','public crowd evidence'],
       evidence:ev,
@@ -395,8 +395,8 @@ module.exports=async function(req,res){
   // only the displayed Horseman and supplies the structured assessment the
   // Council V2 adapter consumes.
   //
-  // Technical facts come from warFactsV2 — the SAME authoritative object
-  // War interpreted — and from nowhere else. Legacy Conquest's `crowding`
+  // Technical facts come from warFactsV2 â€” the SAME authoritative object
+  // War interpreted â€” and from nowhere else. Legacy Conquest's `crowding`
   // is deliberately NOT passed in: it is built from RSI, the 20-day return
   // and volume, so feeding it here would let those statistics reach Death a
   // second time under a sentiment label.
@@ -446,7 +446,7 @@ module.exports=async function(req,res){
       // the crowd evidence-quality layer, but Conquest V2's output contract
       // does not expose it, and surfacing it would mean editing a locked
       // module. Death normalises the absent field to UNKNOWN, which is
-      // truthful, and it feeds no Death decision — it appears only in
+      // truthful, and it feeds no Death decision â€” it appears only in
       // provenance reporting.
       crowd:conquestV2Assessment?{
         attentionLevel:conquestV2Assessment.crowdAttention,
@@ -457,12 +457,16 @@ module.exports=async function(req,res){
         evidenceQualityBand:conquestV2Assessment.evidenceQuality.overallBand,
         sentimentConfidence:conquestV2Assessment.crowdSentimentConfidence,
       }:null,
-      consensus:{directions:{WAR:war.direction,FAMINE:famineOut.direction,CONQUEST:conquest.direction}},
+      // Use Conquest V2's actual direction (abstention -> null) when V2 ran,
+      // never the legacy Horseman's NEUTRAL. Death's consensus check must
+      // see a genuine abstention as an abstention, exactly as it already
+      // does for Famine via famineOut.
+      consensus:{directions:{WAR:war.direction,FAMINE:famineOut.direction,CONQUEST:conquestV2Assessment?conquestOut.direction:conquest.direction}},
     }));
 
     const a=deathV2Assessment;
     deathOut={
-      icon:'☠️',name:'DEATH',label:'DANGER',
+      icon:'â˜ ï¸',name:'DEATH',label:'DANGER',
       simple:'What could go wrong, and is waiting safer?',
       // Death V2 reports severity and evidence confidence, not a market
       // direction or a conviction percentage. Neither is fabricated here.
@@ -526,7 +530,7 @@ module.exports=async function(req,res){
       // Every V2 dependency is present, so Council V2 judges for real.
       // Previously readiness was computed but the analysis was never
       // invoked, so a "ready" request silently fell through to the legacy
-      // council — a genuine defect this integration exposed.
+      // council â€” a genuine defect this integration exposed.
       const built=buildCouncilInputFromHorsemen({
         assetId:ticker,
         war,famine:famineOut,
@@ -545,7 +549,7 @@ module.exports=async function(req,res){
     }
   }
   const conflict=ev.some(x=>x.supports==='BULLISH')&&ev.some(x=>x.supports==='BEARISH');if(conflict)councilConfidence=clamp(councilConfidence-8,25,92);const high=ev.filter(x=>x.reliabilityScore>=72).length,rum=ev.filter(x=>x.type==='RUMOUR').length;
-  const evidenceEngine={rule:'Rank the evidence, not the website.',summary:`${ev.length} evidence items assessed · ${high} high-reliability · ${rum} rumour(s).`,conflict,conflictNote:conflict?'Positive and negative evidence both exist, so Council confidence is reduced.':'No direct positive-vs-negative conflict detected in the captured evidence.',items:ev.sort((a,b)=>b.reliabilityScore-a.reliabilityScore)};
+  const evidenceEngine={rule:'Rank the evidence, not the website.',summary:`${ev.length} evidence items assessed Â· ${high} high-reliability Â· ${rum} rumour(s).`,conflict,conflictNote:conflict?'Positive and negative evidence both exist, so Council confidence is reduced.':'No direct positive-vs-negative conflict detected in the captured evidence.',items:ev.sort((a,b)=>b.reliabilityScore-a.reliabilityScore)};
   const name=useFamineV2?((famineV2.fundamentals.companyName)||cr.meta?.shortName||ticker):(ovOK?overview.Name:(cr.meta?.shortName||ticker));
   return res.status(200).json({retrievedAt:new Date().toISOString(),asset:{ticker,name,currency:cr.meta?.currency,price:last},sources:{market:'Yahoo Finance chart data',fundamentals:'Alpha Vantage',news:'Yahoo Finance news search',sentiment:'Horseman multi-signal Conquest model (news attention + trading activity)',newsItems:news},evidenceEngine,horsemen:[war,famineOut,conquestOut,deathOut],council:councilV2Block?councilV2Block:{verdict,confidence:councilConfidence,synopsis:`${name}: ${verdict}. The Council combined price behaviour, available fundamentals, multi-signal crowd attention and Death's risk checks.`,reasons:[`War: ${war.direction}; Famine: ${famineOut.direction}; Conquest: ${conquest.direction}.`,disagree?'Direct disagreement reduced confidence.':'No direct bullish-vs-bearish split among the primary Horsemen.',risk?`Death raised ${risk} risk point(s).`:'Death found no major connected-data risk flag.'],changeMind:['New price action, company results, verified news, or a material new risk can change the verdict.']}})
  }catch(e){console.error(e);return res.status(500).json({error:'Live analysis failed: '+(e?.message||'unknown error')})}
