@@ -120,7 +120,7 @@ test("famineEngine=v1 uses the legacy Famine path", async () => {
   assert.equal("dataSource" in famineOf(res), false);
 });
 
-test("unknown and blank engine values keep the legacy path — V2 is opt-in only", async () => {
+test("unknown and blank engine values keep the legacy path â€” V2 is opt-in only", async () => {
   for (const value of ["v9", "", "  ", "V1", "true", "v2x", "legacy"]) {
     const { res } = await callAnalyse({ ticker: "AAPL", famineEngine: value });
     assert.equal("dataSource" in famineOf(res), false,
@@ -158,7 +158,7 @@ test("a healthy V2 result reaches /api/analyse with full provenance", async () =
   }
 });
 
-test("V2 uses the CACHED provider — a repeat call does not re-hit Alpha Vantage", async () => {
+test("V2 uses the CACHED provider â€” a repeat call does not re-hit Alpha Vantage", async () => {
   process.env.TWELVE_DATA_API_KEY = "test-key";
   process.env.ALPHA_VANTAGE_API_KEY = "test-av-key";
   const { counts, restore } = installStub({});
@@ -323,4 +323,107 @@ test("the response envelope is unchanged in shape under V2", async () => {
   assert.deepEqual(Object.keys(v2.res.body).sort(), Object.keys(legacy.res.body).sort());
   assert.equal(v2.res.body.asset.name, "Apple Inc.", "company name resolves without the legacy overview");
   assert.equal(v2.res.body.horsemen.length, 4);
+});
+
+/* ==================================================================== */
+/* SHORT-LIVED RATE-LIMIT STATE â€” crossing into Famine/Death/Council      */
+/*                                                                        */
+/* Proves the development-reliability mechanism in                       */
+/* CachedFundamentalsProvider does not leak into evidence semantics       */
+/* anywhere downstream, exercised through the REAL api/analyse.js.       */
+/* ==================================================================== */
+
+test("8-9: a remembered rate limit still surfaces as missing evidence, never NEUTRAL or directional", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  process.env.ALPHA_VANTAGE_API_KEY = "test-av-key";
+  const { counts, restore } = installStub({ overview: "ratelimit", earnings: "ratelimit" });
+  try {
+    delete require.cache[ANALYSE_PATH];
+    const handler = require(ANALYSE_PATH);
+    const mk = () => ({ _status: 200, body: null, status(c) { this._status = c; return this; }, json(b) { this.body = b; return this; } });
+
+    // First call: genuinely hits (and is refused by) Alpha Vantage.
+    const r1 = mk();
+    await handler({ query: { ticker: "AAPL", famineEngine: "v2" } }, r1);
+    assert.equal(counts.alphaOverview, 1);
+    assert.equal(counts.alphaEarnings, 1);
+
+    // Second call, same warm module instance, inside the remembered
+    // window: must NOT call Alpha Vantage again...
+    const r2 = mk();
+    await handler({ query: { ticker: "AAPL", famineEngine: "v2" } }, r2);
+    assert.equal(counts.alphaOverview, 1, "no second OVERVIEW call while the marker is fresh");
+    assert.equal(counts.alphaEarnings, 1, "no second EARNINGS call while the marker is fresh");
+
+    // ...and Famine's evidence semantics on that second call must be
+    // identical to the first: missing evidence, never NEUTRAL, never
+    // directional, never a completeness increase.
+    for (const r of [r1, r2]) {
+      const famine = famineOf(r);
+      assert.equal(famine.dataSource.engine, "v2");
+      assert.equal(famine.direction, "UNKNOWN", "no evidence must not become NEUTRAL");
+      assert.equal(famine.confidence, null);
+      assert.equal(famine.dataSource.dataStatus, "EVIDENCE_UNAVAILABLE");
+      assert.ok(famine.dataSource.statusReasons.some(x => x.includes("RATE_LIMITED")));
+    }
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(famineOf(r2).dataSource), (k, v) => (k === "fetchedAt" ? null : v)),
+      JSON.parse(JSON.stringify(famineOf(r1).dataSource), (k, v) => (k === "fetchedAt" ? null : v)),
+      "the remembered-marker result is indistinguishable from a genuine live rate limit");
+  } finally { restore(); }
+});
+
+test("10: Death's behaviour is unchanged by a remembered rate limit vs a live one", async () => {
+  for (const secondCallHitsMarker of [false, true]) {
+    process.env.TWELVE_DATA_API_KEY = "test-key";
+    process.env.ALPHA_VANTAGE_API_KEY = "test-av-key";
+    const { counts, restore } = installStub({ overview: "ratelimit", earnings: "ratelimit" });
+    try {
+      delete require.cache[ANALYSE_PATH];
+      const handler = require(ANALYSE_PATH);
+      const mk = () => ({ _status: 200, body: null, status(c) { this._status = c; return this; }, json(b) { this.body = b; return this; } });
+      const query = { ticker: "AAPL", famineEngine: "v2", deathEngine: "v2" };
+
+      const first = mk();
+      await handler({ query }, first);
+      let target = first;
+      if (secondCallHitsMarker) {
+        target = mk();
+        await handler({ query }, target); // hits the remembered marker, not Alpha Vantage again
+      }
+      const death = deathOf(target);
+      assert.equal(death.dataSource.engine, "v2");
+      assert.ok(death.dataSource.missingEvidence.some(f => f.id === "FUNDAMENTAL_EVIDENCE_UNAVAILABLE"),
+        "Death still records missing fundamental evidence, whether the rate limit was live or remembered");
+      assert.equal(death.dataSource.observedRisks.filter(f => f.source === "FAMINE").length, 0,
+        "missing evidence is never treated as an observed risk");
+    } finally { restore(); }
+  }
+});
+
+test("11: Council confidence/verdict is not artificially improved by the remembered marker", async () => {
+  process.env.TWELVE_DATA_API_KEY = "test-key";
+  process.env.ALPHA_VANTAGE_API_KEY = "test-av-key";
+  const { restore } = installStub({ overview: "ratelimit", earnings: "ratelimit" });
+  try {
+    delete require.cache[ANALYSE_PATH];
+    const handler = require(ANALYSE_PATH);
+    const mk = () => ({ _status: 200, body: null, status(c) { this._status = c; return this; }, json(b) { this.body = b; return this; } });
+    const query = { ticker: "AAPL", warEngine: "v2", famineEngine: "v2", deathEngine: "v2" };
+
+    const r1 = mk(); await handler({ query }, r1);
+    const r2 = mk(); await handler({ query }, r2); // remembered marker, no second AV call
+
+    // A remembered "no" must not read as evidence that things are fine â€”
+    // it must produce the SAME council outcome as a live "no".
+    assert.deepEqual(r1.body.council, r2.body.council);
+  } finally { restore(); }
+});
+
+test("12: existing successful V2 caching behaviour is unaffected by this change", async () => {
+  const { res } = await callAnalyse({ ticker: "AAPL", famineEngine: "v2" });
+  const famine = famineOf(res);
+  assert.equal(famine.dataSource.engine, "v2");
+  assert.notEqual(famine.dataSource.dataStatus, "EVIDENCE_UNAVAILABLE",
+    "a normal successful run is untouched by the rate-limit mechanism");
 });
