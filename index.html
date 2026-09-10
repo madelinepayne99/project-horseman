@@ -1,134 +1,1345 @@
-<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Project Horseman Live</title><style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0a0a0b;color:#eee;font-family:Arial,Helvetica,sans-serif}main{max-width:980px;margin:auto;padding:22px}.brand{letter-spacing:.22em;color:#c7a968;font-size:12px}.hero{padding:26px 0 12px}h1{font-size:42px;margin:4px 0}.sub{color:#aaa;max-width:760px;line-height:1.5}.search{display:flex;gap:10px;margin:22px 0}input{flex:1;padding:15px 16px;border-radius:10px;border:1px solid #333;background:#111;color:#fff;font-size:17px}button{padding:14px 20px;border:0;border-radius:10px;background:#c7a968;color:#111;font-weight:800}.status{padding:12px 14px;border:1px solid #333;border-radius:10px;background:#111;color:#bbb;margin-bottom:16px}.verdict{border:1px solid #4d4330;background:#111;padding:18px;border-radius:14px;margin:18px 0}.verdict h2{margin:0 0 6px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.card{border:1px solid #292929;background:#111;padding:16px;border-radius:14px}.role{color:#c7a968;font-weight:800;font-size:13px}.simple{color:#ddd;margin:6px 0 12px}.dir{font-size:20px;font-weight:800}.meta{color:#9d9d9d;font-size:13px}.section{margin-top:12px}.section b{display:block;color:#c7a968;font-size:12px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}.section ul{margin:0;padding-left:19px;color:#ccc;line-height:1.45}.good{color:#79d28b}.bad{color:#e27d7d}.neutral{color:#d7bd7c}.guide{margin-top:22px;padding:16px;border:1px solid #292929;border-radius:14px;background:#0f0f10}.guide p{color:#bbb}.links a{color:#d7bd7c;word-break:break-all}.footer{color:#777;font-size:12px;padding:28px 0}.evidencebox{border:1px solid #4d4330;background:#0d0d0e;padding:16px;border-radius:12px;margin-top:14px}.evidenceitem{border-top:1px solid #292929;padding:12px 0}.evidenceitem:first-child{border-top:0}.pill{display:inline-block;border:1px solid #3a3a3a;border-radius:999px;padding:3px 7px;margin:3px 5px 3px 0;font-size:11px;color:#ccc}.toggle{margin-top:12px;background:#1a1a1b;color:#d7bd7c;border:1px solid #4d4330;width:100%;text-align:left}.why{display:none}.why.open{display:block}.smallgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}@media(max-width:700px){.smallgrid{grid-template-columns:1fr}}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #555;border-top-color:#c7a968;border-radius:50%;animation:s .8s linear infinite}@keyframes s{to{transform:rotate(360deg)}}@media(max-width:700px){.grid{grid-template-columns:1fr}h1{font-size:34px}.search{flex-direction:column}}
-/* staged reveal — presentation only, no data is generated here */
-.stage{border-style:dashed;border-color:#3a3a3a;opacity:.9}
-.stagephrase{color:#bbb;margin-top:10px;font-size:14px;display:flex;align-items:center;gap:8px}
-.reveal{animation:rv .42s ease-out both}
-@keyframes rv{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-/* the Council carries more weight than any single Horseman */
-.verdict{box-shadow:0 0 0 1px rgba(199,169,104,.14)}
-.verdict.reveal{animation:rvc .5s ease-out both}
-@keyframes rvc{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
-.councilstage{border:1px solid #4d4330;background:#111;padding:18px;border-radius:14px;margin:18px 0}
-@media(prefers-reduced-motion:reduce){.reveal,.verdict.reveal{animation:none}}
-</style></head><body><main><div class='brand'>PROJECT HORSEMAN · LIVE TEST</div><section class='hero'><h1>Summon the Horsemen.</h1><p class='sub'>Enter a stock ticker. Horseman will retrieve current market data and recent news, measure crowd attention from multiple available signals, show exactly what each role checked, then apply the Council rules. This is research support, not financial advice.</p></section><div class='search'><input id='ticker' value='AAPL' maxlength='12' placeholder='e.g. AAPL, MSFT, TSLA'><button id='go'>SUMMON</button></div><div id='status' class='status'>Ready. Live data is only fetched after you press SUMMON.</div><div id='out'></div><section class='guide'><h3>Plain-English guide</h3><p><b>⚔️ WAR — PRICE & CHART:</b> Is the share price looking strong or weak?</p><p><b>🥀 FAMINE — COMPANY & NEWS:</b> Is current company or economic news helping or hurting it?</p><p><b>👑 CONQUEST — PEOPLE & HYPE:</b> Is attention around the stock calm, fearful, excited or crowded?</p><p><b>☠️ DEATH — DANGER:</b> What could go wrong, and is waiting safer?</p><p><b>🏛️ COUNCIL — FINAL VIEW:</b> Taking everything together, how strong is the evidence?</p><p><b>🔎 EVIDENCE ENGINE:</b> Horseman judges each claim separately — fact, opinion, rumour or prediction — then checks freshness, confirmation, conflicts and possible bias. It does not assume a whole website is trustworthy or untrustworthy.</p><p class='meta'><b>RSI</b> = how stretched recent price movement is. <b>Momentum</b> = whether price has been moving with strength. <b>Volatility</b> = how violently price moves. <b>Macro</b> = wider economic conditions. <b>Sentiment</b> = the mood around the stock. <b>Crowding</b> = too many people leaning the same way. <b>Liquidity</b> = how easily shares can be bought/sold.</p></section><div class='footer'>The Council evaluates. You decide. Live data can be delayed, incomplete or wrong; Horseman shows uncertainty rather than hiding it.</div></main><script>
-const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-function cls(d){return d==='BULLISH'?'good':d==='BEARISH'?'bad':'neutral'}
-// A Horseman may legitimately reach no directional view. Conquest V2 reports
-// behaviour without a market direction, and Death V2 reports risk severity
-// rather than a direction and a conviction percentage. Neither is an error,
-// and neither may be shown as "null" or filled in with a fabricated number.
-function statLine(x){
-  const ds=x.dataSource||{};
-  if(x.name==='DEATH'&&ds.engine==='v2'&&ds.riskSeverity)
-    return `Risk: ${esc(ds.riskSeverity.replace(/_/g,' ').toLowerCase())} · evidence ${esc(String(ds.evidenceConfidence||'unknown').toLowerCase())}`;
-  if(ds.engine==='v2'&&x.name==='CONQUEST')
-    return `Behaviour observed · ${ds.crowdSentiment==='UNKNOWN'?'no crowd view available':'crowd view '+esc(String(ds.crowdSentiment).toLowerCase())}`;
-  if(x.direction===null||x.direction===undefined||x.direction==='UNKNOWN')
-    return 'No directional view reached';
-  return `${esc(x.direction)} · ${typeof x.confidence==='number'?esc(x.confidence)+'%':'confidence unavailable'}`;
-}
-// Every verdict the Council can reach, explained in plain words. WAIT and
-// EXCEPTIONAL are new in V2 and must never render as a bare unexplained word.
-const VERDICT_MEANING={
-  REJECT:'The evidence points against this opportunity.',
-  WATCH:'The evidence is genuinely balanced. Worth watching rather than acting on.',
-  WAIT:'The case may be promising, but the evidence is not yet complete or strong enough to act on. Waiting is the safer choice.',
-  FAVOURABLE:'The evidence supports the case, with enough of it to say so.',
-  STRONG:'The evidence supports the case with high strength and agreement, and no material unresolved challenge.',
-  EXCEPTIONAL:'The evidence is unusually strong, complete, current and unchallenged.'
-};
-// The Council may legitimately reach NO verdict: under the V2 engines it
-// reports INTEGRATION_UNAVAILABLE when a required Horseman is missing. That
-// state is shown as what it is — no verdict, no confidence number, and no
-// borrowed legacy answer standing in for one.
-function councilBlock(d,news){
-  const c=d.council||{};
-  const engine=c.engine==='v2'?`<div class='section'><b>Council engine</b><ul><li>V2</li></ul></div>`:'';
-  if(!c.verdict){
-    const missing=(c.missingDependencies||[]).map(x=>`<li>${esc(x)}</li>`).join('');
-    return `<div class='verdict'><div class='role'>🏛️ COUNCIL — NO VERDICT</div>`+
-      `<h2>No verdict reached</h2>`+
-      `<p>The Council did not reach a verdict, so none is shown. This is not a neutral result and should not be read as one.</p>`+
-      (missing?`<div class='section'><b>Evidence the Council still needs</b><ul>${missing}</ul></div>`:'')+
-      ((c.reasons||[]).length?`<div class='section'><b>Why</b><ul>${c.reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
-      ((c.limitations||[]).length?`<div class='section'><b>Limits</b><ul>${c.limitations.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
-      `${news}${evidencePanel(d.evidenceEngine)}</div>`;
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Horseman — The Council evaluates. You decide.</title>
+<style>
+  /* ===================================================================
+     DESIGN TOKENS -- palette LOCKED; type is a placeholder stack behind
+     variables so the bespoke wordmark can be swapped in later.
+     =================================================================== */
+  :root{
+    --eggshell:#F3EEE4; --eggshell-raised:#FAF7F0;
+    --hairline:#DCD3BF; --hairline-strong:#C9BEA4;
+    --charcoal:#211E1B; --charcoal-soft:#59544D; --charcoal-faint:#8A8377;
+
+    --stage:#14120F; --stage-2:#1E1B17; --stage-3:#0E0C0A;
+    --stage-line:rgba(243,238,228,0.14);
+    --stage-text:#F3EEE4; --stage-text-soft:rgba(243,238,228,0.62);
+
+    --council:#A9863F; --council-soft:#EFE4C9; --council-glow:rgba(169,134,63,0.38);
+    --death:#4B3A5C; --death-soft:#E3DCEA;
+    --war:#7A1F2B; --war-soft:#EFDBDD;
+    --famine:#2B4436; --famine-soft:#DCE6DE;
+    --conquest:#1F3A66; --conquest-soft:#DCE3EE;
+    --death-panel-1:#241E2C; --death-panel-2:#34293F;
+
+    /* Lifted tints -- the base hues are deliberately deep for print-like
+       credibility on cream, but need lifting to stay legible on the dark
+       stage. Same identity, adjusted for contrast. */
+    --war-lit:#C2566A; --famine-lit:#6BA583; --conquest-lit:#6E9BD6; --death-lit:#A78BC0;
+
+    --serif:'Fraunces','Iowan Old Style',Georgia,serif;
+    --sans:'Inter',-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;
+
+    --radius:3px;
+    --space-1:8px; --space-2:16px; --space-3:24px;
+    --space-4:32px; --space-5:48px; --space-6:64px;
+    --ease:cubic-bezier(0.22,1,0.36,1);
   }
-  const meaning=VERDICT_MEANING[c.verdict]||'';
-  const conf=typeof c.confidence==='number'?`${esc(c.confidence)}% confidence`:'confidence unavailable';
-  const coverage=c.coverage&&c.coverage.abstained&&c.coverage.abstained.length
-    ? `<div class='section'><b>Who reached a view</b><ul><li>Reached a view: ${esc((c.coverage.participating||[]).join(', ')||'none')}</li>`+
-      `<li>Reached no view: ${esc(c.coverage.abstained.join(', '))} — an abstention is not agreement</li></ul></div>`
-    : '';
-  const reasons=(c.reasons||c.verdictReasons||[]);
-  const change=(c.changeMind||c.whatWouldChangeMind||[]);
-  return `<div class='verdict'><div class='role'>🏛️ COUNCIL — FINAL VIEW</div>`+
-    `<h2>${esc(c.verdict)} · ${conf}</h2>`+
-    (meaning?`<p><b>${esc(meaning)}</b></p>`:'')+
-    (c.synopsis?`<p>${esc(c.synopsis)}</p>`:'')+
-    coverage+engine+
-    (reasons.length?`<div class='section'><b>Why</b><ul>${reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
-    (change.length?`<div class='section'><b>What would change the Council's mind</b><ul>${change.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')+
-    `${news}${evidencePanel(d.evidenceEngine)}</div>`;
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  /* Native scrolling only -- nothing in this file captures wheel/touch. */
+  body{background:var(--eggshell);color:var(--charcoal);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;min-height:100vh;}
+  #app{min-height:100vh;display:flex;flex-direction:column;}
+  a{color:inherit;} button{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--council);outline-offset:2px;}
+
+  /* Reduced motion: every state is reached via a class/style that sets its
+     FINAL correct value -- motion only rides on top. Collapsing durations
+     therefore never strands anything invisible. The scroll engine also
+     jumps straight to its resolved state (see initScrollScene). */
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; transition-duration:0.001ms !important;
+      animation-iteration-count:1 !important; scroll-behavior:auto !important;}
+  }
+
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);}
+  .hicon{width:22px;height:22px;flex-shrink:0;}
+  .hicon path,.hicon circle{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+  .hicon circle[fill="currentColor"]{fill:currentColor;stroke:none;}
+
+  /* ---------- dark stage ---------- */
+  .stage{
+    background:radial-gradient(ellipse 900px 480px at 50% -10%, rgba(169,134,63,0.10), transparent 60%),
+      linear-gradient(175deg, var(--stage) 0%, var(--stage-2) 100%);
+    color:var(--stage-text);position:relative;overflow:hidden;
+  }
+  .stage::before{content:"";position:absolute;inset:0;opacity:0.035;pointer-events:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");}
+  .stage-topbar{position:relative;z-index:3;}
+  .stage-topbar .brand .mark{color:var(--stage-text);}
+  .stage-topbar .tenet{color:var(--stage-text-soft);}
+
+  .sigil{display:block;opacity:0.85;}
+  .sigil path{fill:none;stroke-width:1.6;stroke-linecap:round;}
+  .sigil .sig-war{stroke:var(--war-lit);} .sigil .sig-famine{stroke:var(--famine-lit);}
+  .sigil .sig-conquest{stroke:var(--conquest-lit);} .sigil .sig-death{stroke:var(--death-lit);}
+  .sigil .sig-core{fill:var(--council);stroke:none;}
+  .hero-bg-sigil{position:absolute;top:-40px;right:-40px;width:420px;height:420px;opacity:0.05;pointer-events:none;}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;
+    padding:var(--space-4) var(--space-4) var(--space-2);max-width:1120px;margin:0 auto;width:100%;
+    position:relative;z-index:3;}
+  .brand{display:flex;align-items:center;gap:12px;cursor:pointer;background:none;border:none;padding:0;font-family:var(--serif);}
+  .brand .mark{font-size:18px;font-weight:600;letter-spacing:0.18em;color:var(--charcoal);}
+  .tenet{font-family:var(--serif);font-style:italic;color:var(--charcoal-soft);font-size:13.5px;}
+  main{flex:1;width:100%;}
+  footer.legal{text-align:center;padding:var(--space-5) var(--space-3);color:var(--charcoal-faint);
+    font-size:12px;line-height:1.6;max-width:600px;margin:0 auto;}
+
+  /* ===================================================================
+     SCENE 1 -- DORMANT. Primary action reachable with no scroll.
+     =================================================================== */
+  .landing-viewport{min-height:calc(100vh - 88px);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:var(--space-3) var(--space-3) var(--space-5);
+    position:relative;z-index:2;}
+  .landing-hero{max-width:640px;width:100%;text-align:center;}
+  .landing-hero .wordmark{font-family:var(--serif);font-weight:500;font-size:15px;letter-spacing:0.5em;
+    text-transform:uppercase;color:var(--stage-text);margin:0 0 10px;}
+  .landing-hero h1{font-family:var(--serif);font-weight:500;font-size:44px;line-height:1.12;
+    margin:0 0 6px;letter-spacing:-0.01em;color:var(--stage-text);}
+  .wordmark-rule{width:64px;height:1px;margin:16px auto 22px;background:var(--council);
+    transform:scaleX(0);transform-origin:center;transition:transform 0.9s var(--ease) 0.15s;}
+  .wordmark-rule.drawn{transform:scaleX(1);}
+  .landing-hero .tenet-large{font-family:var(--serif);font-style:italic;color:var(--stage-text-soft);
+    font-size:16px;margin:0 0 var(--space-5);}
+
+  .search-wrap{position:relative;max-width:480px;margin:0 auto;}
+  .search-field{display:flex;align-items:center;gap:10px;position:relative;background:var(--eggshell-raised);
+    border:1px solid transparent;border-radius:var(--radius);padding:17px 20px;
+    box-shadow:0 0 0 1px var(--hairline), 0 18px 40px rgba(0,0,0,0.35);transition:box-shadow 0.35s var(--ease);}
+  .search-field.engaged{box-shadow:0 0 0 1px var(--council), 0 0 0 5px var(--council-glow), 0 18px 40px rgba(0,0,0,0.4);}
+  .search-field input{border:none;background:transparent;outline:none;width:100%;
+    font-family:var(--sans);font-size:16px;color:var(--charcoal);}
+  .search-field input::placeholder{color:var(--charcoal-faint);}
+  .search-icon{color:var(--charcoal-faint);flex-shrink:0;}
+  .search-ticks{position:absolute;inset:-1px;border-radius:var(--radius);pointer-events:none;opacity:0;transition:opacity 0.4s var(--ease);}
+  .search-ticks.ready{opacity:1;}
+  .search-ticks span{position:absolute;width:9px;height:9px;border-radius:50%;}
+  .search-ticks .t-war{top:-4px;left:-4px;background:var(--war-lit);}
+  .search-ticks .t-famine{top:-4px;right:-4px;background:var(--famine-lit);}
+  .search-ticks .t-conquest{bottom:-4px;left:-4px;background:var(--conquest-lit);}
+  .search-ticks .t-death{bottom:-4px;right:-4px;background:var(--death-lit);}
+
+  .autocomplete{position:absolute;left:0;right:0;top:calc(100% + 8px);background:var(--eggshell-raised);
+    border:1px solid var(--hairline);border-radius:var(--radius);text-align:left;overflow:hidden;z-index:20;
+    box-shadow:0 16px 40px rgba(0,0,0,0.35);}
+  .autocomplete button{display:flex;width:100%;align-items:center;justify-content:space-between;
+    padding:13px 20px;background:none;border:none;text-align:left;cursor:pointer;font-family:var(--sans);
+    font-size:14px;color:var(--charcoal);border-bottom:1px solid var(--hairline);min-height:44px;}
+  .autocomplete button:last-child{border-bottom:none;}
+  .autocomplete button:hover,.autocomplete button:focus-visible{background:var(--eggshell);}
+  .autocomplete .ticker{color:var(--charcoal-faint);font-variant-numeric:tabular-nums;letter-spacing:0.02em;}
+
+  .selected-pill{display:inline-flex;align-items:center;gap:10px;margin:16px auto 0;padding:9px 16px;
+    background:rgba(243,238,228,0.08);border:1px solid var(--stage-line);border-radius:999px;
+    font-size:13.5px;color:var(--stage-text);}
+  .selected-pill button{cursor:pointer;color:var(--stage-text-soft);background:none;border:none;font-size:15px;line-height:1;padding:4px;}
+
+  .summon-btn{margin-top:var(--space-4);min-height:52px;position:relative;font-family:var(--sans);
+    font-weight:600;font-size:13.5px;letter-spacing:0.14em;text-transform:uppercase;
+    background:rgba(243,238,228,0.06);color:var(--stage-text-soft);border:1px solid var(--stage-line);
+    border-radius:999px;padding:16px 40px;cursor:not-allowed;transition:all 0.4s var(--ease);
+    display:inline-flex;align-items:center;gap:12px;}
+  .summon-btn .dots{display:flex;gap:4px;}
+  .summon-btn .dots span{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:0.25;
+    transform:scale(0.6);transition:all 0.4s var(--ease);}
+  .summon-btn.armed{background:var(--council);color:#1a140a;border-color:var(--council);cursor:pointer;
+    box-shadow:0 0 0 0 var(--council-glow);letter-spacing:0.18em;}
+  .summon-btn.armed .dots span{opacity:1;transform:scale(1);background:var(--stage);}
+  .summon-btn.armed .dots span:nth-child(1){transition-delay:0.05s;}
+  .summon-btn.armed .dots span:nth-child(2){transition-delay:0.12s;}
+  .summon-btn.armed .dots span:nth-child(3){transition-delay:0.19s;}
+  .summon-btn.armed .dots span:nth-child(4){transition-delay:0.26s;}
+  .summon-btn.armed:hover{box-shadow:0 0 32px 4px var(--council-glow);transform:translateY(-1px);}
+  .summon-btn:disabled{pointer-events:none;}
+
+  .scroll-cue{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);z-index:2;
+    color:var(--stage-text-soft);font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;
+    display:flex;flex-direction:column;align-items:center;gap:8px;transition:opacity 0.4s ease;}
+  .scroll-cue .line{width:1px;height:28px;background:linear-gradient(to bottom,var(--council),transparent);}
+
+  /* ===================================================================
+     SCENE 2-7 -- THE CASE LINE. One pinned stage; scroll progress drives
+     everything. Height gives the pin its scroll runway.
+     =================================================================== */
+  .journey{position:relative;background:var(--stage-3);}
+  .journey-track{height:560vh;position:relative;}
+  .journey-pin{position:sticky;top:0;height:100vh;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;}
+  .journey-pin::before{content:"";position:absolute;inset:0;opacity:0.04;pointer-events:none;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n2'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n2)'/></svg>");}
+  /* Background tone shifts across the journey -- set inline by the engine. */
+  .journey-wash{position:absolute;inset:0;pointer-events:none;transition:none;}
+
+  .case-stage{position:relative;width:min(1080px,92vw);height:100vh;display:flex;align-items:center;gap:clamp(20px,5vw,80px);}
+  .case-figure{flex:0 0 auto;width:min(460px,52%);height:min(76vh,620px);position:relative;}
+  .case-figure svg{width:100%;height:100%;overflow:visible;}
+  .case-copy{flex:1;min-width:0;position:relative;height:min(76vh,620px);}
+
+  .act-panel{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);
+    opacity:0;pointer-events:none;}
+  .act-panel.on{pointer-events:auto;}
+  .act-index{font-size:10.5px;letter-spacing:0.22em;text-transform:uppercase;
+    color:var(--stage-text-soft);margin-bottom:14px;display:flex;align-items:center;gap:10px;}
+  .act-index .rule{width:26px;height:1px;background:currentColor;opacity:0.5;}
+  .act-name{font-family:var(--serif);font-size:clamp(34px,5.4vw,58px);line-height:1;margin:0 0 14px;
+    letter-spacing:-0.015em;color:var(--stage-text);}
+  .act-name.war{color:var(--war-lit);} .act-name.famine{color:var(--famine-lit);}
+  .act-name.conquest{color:var(--conquest-lit);} .act-name.death{color:var(--death-lit);}
+  .act-name.council{color:var(--council);}
+  .act-quote{font-family:var(--serif);font-style:italic;font-size:clamp(15px,1.7vw,19px);
+    color:var(--stage-text-soft);margin:0 0 16px;line-height:1.45;}
+  .act-body{font-size:clamp(13.5px,1.35vw,15.5px);line-height:1.68;color:rgba(243,238,228,0.74);
+    margin:0;max-width:38ch;}
+  .act-role{font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(243,238,228,0.45);
+    margin-top:16px;}
+
+  /* Progress rail -- shows position through the journey, doubles as the
+     non-visual reader's sense of "how far through the case am I". */
+  .journey-rail{position:absolute;right:clamp(14px,3vw,34px);top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;gap:12px;z-index:3;}
+  .rail-node{width:7px;height:7px;border-radius:50%;background:rgba(243,238,228,0.18);
+    transition:background 0.35s var(--ease), transform 0.35s var(--ease);}
+  .rail-node.lit{transform:scale(1.5);}
+  .rail-node.war.lit{background:var(--war-lit);} .rail-node.famine.lit{background:var(--famine-lit);}
+  .rail-node.conquest.lit{background:var(--conquest-lit);} .rail-node.death.lit{background:var(--death-lit);}
+  .rail-node.council.lit{background:var(--council);}
+
+  /* ---------- closing statement ---------- */
+  .closing{background:var(--stage-3);color:var(--stage-text);padding:var(--space-6) var(--space-3) 90px;
+    text-align:center;position:relative;}
+  .closing-inner{max-width:680px;margin:0 auto;}
+  .closing h2{font-family:var(--serif);font-size:clamp(26px,4vw,40px);line-height:1.2;margin:0 0 20px;font-weight:500;}
+  .closing .seq{display:flex;justify-content:center;gap:0;flex-wrap:wrap;margin-bottom:26px;
+    font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:var(--stage-text-soft);}
+  .closing .seq span{padding:0 14px;position:relative;}
+  .closing .seq span+span::before{content:"";position:absolute;left:0;top:50%;width:1px;height:11px;
+    background:var(--stage-line);transform:translateY(-50%);}
+  .closing .kicker{font-family:var(--serif);font-style:italic;font-size:clamp(17px,2.2vw,22px);
+    color:var(--council);margin:0 0 var(--space-4);}
+  .closing .back-to-top{background:none;border:1px solid var(--stage-line);color:var(--stage-text-soft);
+    border-radius:999px;padding:13px 28px;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;
+    cursor:pointer;min-height:44px;transition:border-color 0.25s ease,color 0.25s ease;}
+  .closing .back-to-top:hover{border-color:var(--council);color:var(--council);}
+
+  @media (max-width:900px){
+    .case-stage{flex-direction:column;gap:0;justify-content:center;height:100vh;padding:76px 0 24px;}
+    .case-figure{width:min(300px,72vw);height:38vh;flex:0 0 auto;}
+    .case-copy{width:100%;height:auto;flex:0 0 auto;margin-top:18px;min-height:210px;}
+    .act-panel{position:absolute;top:0;transform:none;text-align:center;}
+    .act-index{justify-content:center;}
+    .act-body{margin-left:auto;margin-right:auto;}
+    .journey-rail{right:auto;left:50%;top:auto;bottom:18px;transform:translateX(-50%);flex-direction:row;}
+    .landing-hero h1{font-size:32px;}
+  }
+  @media (max-width:820px){ .landing-hero h1{font-size:32px;} }
+  @media (max-width:520px){
+    .topbar{padding:20px var(--space-2) 10px;}
+    .act-name{font-size:clamp(28px,9vw,40px);}
+  }
+
+  /* ===================================================================
+     SUMMONING -- constellation
+     =================================================================== */
+  .summon-screen{position:relative;z-index:2;padding:14vh var(--space-3) var(--space-4);max-width:760px;margin:0 auto;}
+  .summon-target-wrap{text-align:center;margin-bottom:var(--space-5);}
+  .summon-target-label{color:var(--stage-text-soft);font-size:11.5px;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:8px;}
+  .summon-target{font-family:var(--serif);font-size:30px;color:var(--stage-text);}
+  .constellation{display:flex;align-items:flex-start;justify-content:center;}
+  .node-wrap{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
+  .connector{flex:1;height:1px;background:var(--stage-line);margin-top:23px;position:relative;min-width:16px;max-width:70px;}
+  .connector::after{content:"";position:absolute;inset:0;background:var(--council);transform:scaleX(0);
+    transform-origin:left;transition:transform 0.5s var(--ease);}
+  .connector.filled::after{transform:scaleX(1);}
+  .node{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--stage-line);color:rgba(243,238,228,0.35);background:rgba(243,238,228,0.03);
+    transition:all 0.45s var(--ease);}
+  .node .hicon{width:19px;height:19px;}
+  .node-label{margin-top:12px;text-align:center;}
+  .node-name{font-family:var(--serif);font-size:13.5px;color:var(--stage-text-soft);transition:color 0.3s ease;}
+  .node-msg{font-size:11px;color:rgba(243,238,228,0.4);margin-top:2px;max-width:120px;line-height:1.4;}
+  .node-wrap.active .node{transform:scale(1.12);box-shadow:0 0 0 6px rgba(243,238,228,0.05);}
+  .node-wrap.active .node-name{color:var(--stage-text);}
+  .node-wrap.war.active .node{border-color:var(--war-lit);color:var(--war-lit);}
+  .node-wrap.famine.active .node{border-color:var(--famine-lit);color:var(--famine-lit);}
+  .node-wrap.conquest.active .node{border-color:var(--conquest-lit);color:var(--conquest-lit);}
+  .node-wrap.death.active .node{border-color:var(--death-lit);color:var(--death-lit);}
+  .node-wrap.council.active .node{border-color:var(--council);color:var(--council);
+    animation:councilPulse 0.7s var(--ease) forwards;}
+  @keyframes councilPulse{0%{transform:scale(1);}45%{transform:scale(1.28);box-shadow:0 0 0 10px var(--council-glow);}100%{transform:scale(1.12);}}
+  .node-wrap.done .node{border-color:var(--hairline-strong);color:rgba(243,238,228,0.55);background:rgba(243,238,228,0.05);}
+  .node-wrap.done .node-name{color:rgba(243,238,228,0.55);}
+  .node-wrap.done .node-msg{opacity:0;height:0;overflow:hidden;margin-top:0;}
+  .summon-note{margin-top:var(--space-4);font-size:12px;color:var(--stage-text-soft);text-align:center;}
+  @media (max-width:640px){
+    .constellation{flex-direction:column;align-items:flex-start;gap:0;padding-left:8px;}
+    .node-wrap{flex-direction:row;align-items:center;width:100%;margin-bottom:2px;}
+    .connector{width:1px;height:28px;margin:0 0 0 22px;flex:none;min-width:0;max-width:none;}
+    .connector::after{inset:0;transform:scaleY(0);transform-origin:top;}
+    .connector.filled::after{transform:scaleY(1);}
+    .node-label{margin:0 0 0 16px;text-align:left;}
+  }
+
+  /* ===================================================================
+     RESULTS
+     =================================================================== */
+  .results-wrap{max-width:720px;margin:0 auto;padding:0 var(--space-3) var(--space-6);}
+  .ticker-line{text-align:center;font-size:12.5px;color:var(--charcoal-faint);letter-spacing:0.03em;margin:4px 0 var(--space-4);}
+  .ticker-line strong{color:var(--charcoal);font-weight:600;}
+  .verdict-card{text-align:center;padding:48px 24px 38px;background:var(--eggshell-raised);position:relative;
+    border:1px solid var(--council-soft);border-radius:var(--radius);margin-bottom:var(--space-3);overflow:hidden;}
+  .verdict-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,transparent,var(--council),transparent);}
+  .verdict-card::after{content:"";position:absolute;top:-120px;left:50%;transform:translateX(-50%);
+    width:480px;height:280px;background:radial-gradient(ellipse at center,var(--council-glow),transparent 70%);
+    opacity:0.35;pointer-events:none;}
+  .verdict-inner{position:relative;z-index:1;}
+  .verdict-eyebrow{font-size:11.5px;letter-spacing:0.16em;text-transform:uppercase;color:var(--council);
+    margin-bottom:18px;font-weight:600;}
+  .verdict-word{font-family:var(--serif);font-size:46px;font-weight:600;margin:0 0 18px;line-height:1.08;
+    letter-spacing:0.01em;animation:verdictIn 0.6s var(--ease) forwards;}
+  @keyframes verdictIn{from{opacity:0;transform:scale(0.97) translateY(6px);}to{opacity:1;transform:scale(1) translateY(0);}}
+  .confidence-row{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:18px;flex-wrap:wrap;}
+  .conf-ring-wrap{position:relative;width:52px;height:52px;flex-shrink:0;}
+  .conf-ring-wrap svg{transform:rotate(-90deg);}
+  .conf-ring-bg{fill:none;stroke:var(--hairline);stroke-width:3;}
+  .conf-ring-fill{fill:none;stroke:var(--council);stroke-width:3;stroke-linecap:round;
+    transition:stroke-dashoffset 1s var(--ease) 0.2s;}
+  .conf-ring-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-size:13px;font-weight:600;color:var(--council);}
+  .verdict-confidence{font-size:14px;color:var(--charcoal-soft);text-align:left;max-width:220px;}
+  .verdict-confidence strong{color:var(--charcoal);font-weight:600;}
+  .verdict-explain{max-width:480px;margin:0 auto;font-size:15px;line-height:1.65;color:var(--charcoal);}
+  .verdict-explain strong{font-weight:600;}
+  .confidence-note{font-size:11px;color:var(--charcoal-faint);margin-top:18px;font-style:italic;
+    max-width:420px;margin-left:auto;margin-right:auto;}
+
+  .death-card{background:linear-gradient(155deg,var(--death-panel-1),var(--death-panel-2));color:#EDE7E2;
+    border:1px solid rgba(227,220,234,0.14);border-left:3px solid var(--death-soft);border-radius:var(--radius);
+    padding:28px 30px;margin-bottom:var(--space-3);position:relative;overflow:hidden;}
+  .death-card::before{content:"";position:absolute;top:-60px;right:-60px;width:200px;height:200px;
+    background:radial-gradient(circle,rgba(227,220,234,0.08),transparent 70%);pointer-events:none;}
+  .death-eyebrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:relative;z-index:1;
+    font-family:var(--serif);font-size:17px;font-weight:600;color:#EDE7E2;margin-bottom:4px;}
+  .death-eyebrow .hicon{color:var(--death-soft);width:19px;height:19px;}
+  .death-eyebrow .sub{font-family:var(--sans);font-size:11.5px;font-weight:500;color:rgba(227,220,234,0.55);letter-spacing:0.03em;}
+  .death-badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;margin:12px 0;position:relative;z-index:1;}
+  .death-badge.risk{background:rgba(227,220,234,0.16);color:#F1ECF4;}
+  .death-badge.none{background:rgba(255,255,255,0.06);color:rgba(227,220,234,0.7);border:1px solid rgba(227,220,234,0.18);}
+  .death-statement{font-size:15px;line-height:1.6;color:#EDE7E2;margin:0 0 10px;position:relative;z-index:1;}
+  .death-clarify{font-size:12.5px;line-height:1.55;color:rgba(227,220,234,0.62);margin:0;padding-top:10px;
+    border-top:1px solid rgba(227,220,234,0.14);position:relative;z-index:1;}
+
+  .agreement-block{display:flex;gap:var(--space-3);flex-wrap:wrap;justify-content:center;text-align:center;
+    padding:18px var(--space-3);background:var(--eggshell-raised);border:1px solid var(--hairline);
+    border-radius:var(--radius);margin-bottom:var(--space-3);font-size:13px;}
+  .agreement-block .col{flex:1;min-width:180px;}
+  .agreement-block .label{font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--charcoal-faint);margin-bottom:6px;}
+  .agreement-block .names{color:var(--charcoal);font-weight:500;}
+  .agreement-block .abstain-note{display:block;font-size:11.5px;color:var(--charcoal-faint);font-weight:400;margin-top:2px;}
+  .change-mind{padding:18px var(--space-3);background:var(--eggshell-raised);border:1px solid var(--hairline);
+    border-radius:var(--radius);margin-bottom:var(--space-4);}
+  .change-mind .label{font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--charcoal-faint);margin-bottom:8px;}
+  .change-mind ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--charcoal-soft);}
+
+  .section-title{font-size:11.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--charcoal-faint);margin:var(--space-4) 0 var(--space-2);}
+  .horseman-report{border:1px solid var(--hairline);border-top:2px solid var(--hairline);border-radius:var(--radius);
+    margin-bottom:12px;overflow:hidden;background:var(--eggshell-raised);}
+  .horseman-report.war{border-top-color:var(--war);} .horseman-report.famine{border-top-color:var(--famine);}
+  .horseman-report.conquest{border-top-color:var(--conquest);}
+  .hr-head{display:flex;align-items:center;gap:12px;padding:16px 18px;}
+  .hr-title-block{flex:1;min-width:0;}
+  .hr-name-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .hr-name-row h4{font-family:var(--serif);font-size:16px;margin:0;}
+  .hr-name-row h4.war{color:var(--war);} .hr-name-row h4.famine{color:var(--famine);} .hr-name-row h4.conquest{color:var(--conquest);}
+  .hr-role{font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;color:var(--charcoal-faint);}
+  .hr-stat{font-size:12.5px;color:var(--charcoal-soft);font-variant-numeric:tabular-nums;margin-top:2px;}
+  .hr-stat.abstained{font-style:italic;color:var(--charcoal-faint);}
+  .hr-body{padding:0 18px 16px;}
+  .hr-findings{margin:0 0 10px;padding-left:18px;color:var(--charcoal);font-size:13.5px;line-height:1.6;}
+  .hr-limit-summary{font-size:12px;color:var(--charcoal-faint);line-height:1.5;margin-bottom:4px;}
+  .hr-toggle{display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;
+    font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--charcoal-soft);padding:8px 0;min-height:32px;
+    transition:color 0.2s ease,transform 0.2s ease;}
+  .hr-toggle:hover{color:var(--charcoal);transform:translateX(2px);}
+  .hr-toggle .chev{transition:transform 0.2s ease;font-size:11px;}
+  .hr-toggle[aria-expanded="true"] .chev{transform:rotate(180deg);}
+  .hr-more{display:none;padding-top:6px;border-top:1px solid var(--hairline);margin-top:6px;}
+  .hr-more.open{display:block;}
+  .hr-more-limits{margin:0;padding-left:18px;font-size:12.5px;color:var(--charcoal-soft);line-height:1.55;}
+
+  .deep-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;background:none;
+    border:1px solid var(--hairline);border-radius:var(--radius);padding:14px 18px;cursor:pointer;
+    font-family:var(--sans);font-size:13px;font-weight:600;color:var(--charcoal-soft);margin-top:var(--space-3);
+    min-height:44px;transition:border-color 0.2s ease;}
+  .deep-toggle:hover{border-color:var(--hairline-strong);}
+  .deep-toggle .chev{transition:transform 0.2s ease;}
+  .deep-toggle.open .chev{transform:rotate(180deg);}
+  .deep-panel{display:none;border:1px solid var(--hairline);border-top:none;border-radius:0 0 var(--radius) var(--radius);
+    padding:6px 18px 16px;background:var(--eggshell-raised);}
+  .deep-panel.open{display:block;}
+  .deep-item{padding:14px 0;border-bottom:1px solid var(--hairline);}
+  .deep-item:last-child{border-bottom:none;}
+  .deep-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;}
+  .deep-source{font-weight:600;font-size:13px;}
+  .deep-badge{font-size:10px;letter-spacing:0.05em;text-transform:uppercase;padding:2px 7px;border-radius:999px;
+    font-weight:600;background:var(--eggshell);color:var(--charcoal-faint);border:1px solid var(--hairline);}
+  .deep-meta{font-size:11.5px;color:var(--charcoal-faint);line-height:1.55;}
+  .deep-summary{font-size:13px;line-height:1.55;margin:0 0 5px;color:var(--charcoal);}
+  .news-list{margin:6px 0 0;padding-left:18px;font-size:12.5px;line-height:1.6;}
+  .news-list a{color:var(--conquest);}
+  .new-search{display:block;text-align:center;margin:var(--space-5) auto 0;background:none;
+    border:1px solid var(--hairline);border-radius:var(--radius);padding:13px 26px;font-family:var(--sans);
+    font-size:13px;font-weight:600;color:var(--charcoal);cursor:pointer;min-height:44px;transition:border-color 0.2s ease;}
+  .new-search:hover{border-color:var(--charcoal);}
+
+  .debug-panel{margin-top:var(--space-4);border:1px dashed var(--hairline-strong);border-radius:var(--radius);
+    padding:18px 20px;background:#FBFAF6;}
+  .debug-title{font-family:var(--sans);font-weight:700;font-size:11.5px;letter-spacing:0.06em;text-transform:uppercase;
+    color:var(--war);margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .debug-tag{font-weight:600;letter-spacing:0.03em;text-transform:none;font-size:10.5px;color:var(--charcoal-faint);
+    background:var(--eggshell);border:1px solid var(--hairline);border-radius:999px;padding:2px 8px;}
+  .debug-row{display:flex;justify-content:space-between;gap:16px;padding:6px 0;border-bottom:1px solid var(--hairline);font-size:12.5px;}
+  .debug-row:last-child{border-bottom:none;}
+  .debug-label{color:var(--charcoal-faint);}
+  .debug-value{font-variant-numeric:tabular-nums;text-align:right;color:var(--charcoal);}
+  .debug-raw{font-size:12px;color:var(--charcoal-soft);line-height:1.6;margin:0;}
+  .debug-raw ul{margin:6px 0 0;padding-left:18px;}
+  .live-badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:#2B4436;background:#DCE6DE;border:1px solid #B9CDBF;border-radius:999px;padding:2px 8px;vertical-align:middle;}
+  .fallback-badge{background:#F6ECD8;border-color:#E0CBA0;color:#7A5A1F;}
+  .error-block{max-width:600px;margin:60px auto;padding:26px;border:1px solid var(--hairline);
+    background:var(--eggshell-raised);border-radius:var(--radius);}
+  .error-block h3{font-family:var(--serif);margin:0 0 10px;font-size:21px;}
+  .error-block p{color:var(--charcoal-soft);line-height:1.55;margin:0 0 8px;}
+  .error-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--charcoal-soft);
+    background:var(--eggshell);border:1px solid var(--hairline);padding:8px 10px;border-radius:2px;margin-top:10px;word-break:break-word;}
+
+  /* ---- Case Line mark styles. Colours are the LIT tints so each
+     specialist stays identifiable against the dark stage. ---- */
+  .m-spine{fill:none;stroke:rgba(243,238,228,0.55);stroke-width:1.5;stroke-linecap:round;}
+  .m-war{fill:none;stroke:var(--war-lit);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .m-famine{fill:none;stroke:var(--famine-lit);stroke-width:1.6;stroke-linecap:round;}
+  .m-conquest{fill:none;stroke:var(--conquest-lit);stroke-width:1.8;stroke-linecap:round;}
+  .m-death{fill:none;stroke:var(--death-lit);stroke-width:2.2;stroke-linecap:round;}
+  .m-death-node{fill:var(--death-lit);}
+  .m-council-ring{fill:none;stroke:var(--council);stroke-width:1.2;opacity:0.55;}
+  .m-council-core{fill:var(--council);}
+  .m-conv{fill:none;stroke:var(--council);stroke-width:1.4;stroke-linecap:round;opacity:0.8;}
+  /* The unresolved strand is dashed AND short -- missing evidence is
+     visibly missing, never quietly completed. */
+  .m-conv.unresolved{stroke-dasharray:4 7 !important;opacity:0.45;}
+  .fig-shift{transform-origin:300px 455px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* =====================================================================
+   HORSEMAN -- LIVE V2 PREVIEW
+   ---------------------------------------------------------------------
+   Presentation only, connected to the real backend. No local scoring,
+   no fabricated evidence, no local Council judgement. Every War /
+   Famine / Conquest / Death / Council value below comes verbatim from
+   ONE /api/analyse response, requested with the V2 engines explicitly
+   activated (see beginSummon). The staged summoning sequence is
+   presentation only -- it runs on timers while a single request is in
+   flight, and never triggers a second request.
+   ===================================================================== */
+
+const SECURITIES = [
+  {name:"Apple", ticker:"AAPL"}, {name:"Tesla", ticker:"TSLA"},
+  {name:"Microsoft", ticker:"MSFT"}, {name:"NVIDIA", ticker:"NVDA"},
+  {name:"Amazon", ticker:"AMZN"}, {name:"Alphabet", ticker:"GOOGL"},
+  {name:"Meta Platforms", ticker:"META"}, {name:"Netflix", ticker:"NFLX"},
+  {name:"Nike", ticker:"NKE"}, {name:"Coca-Cola", ticker:"KO"},
+  {name:"JPMorgan Chase", ticker:"JPM"}, {name:"Walmart", ticker:"WMT"},
+];
+
+const SUMMON_STEPS = [
+  {key:"war",      name:"War",         msg:"Reading the battlefield…"},
+  {key:"famine",   name:"Famine",      msg:"Reading the world around the trade…"},
+  {key:"conquest", name:"Conquest",    msg:"Reading how the market is behaving…"},
+  {key:"death",    name:"Death",       msg:"Searching for the reason not to…"},
+  {key:"council",  name:"The Council", msg:"Weighing the evidence…"},
+];
+const STEP_DELAY = 550;
+const HORSEMAN_KEY = {WAR:"war", FAMINE:"famine", CONQUEST:"conquest", DEATH:"death"};
+const HORSEMAN_ROLE = {WAR:"Price & Chart", FAMINE:"Company & News", CONQUEST:"Behaviour"};
+
+/* ---------- restrained line-art icons -- bespoke, not literal, not emoji ---------- */
+const ICONS = {
+  war:      `<svg viewBox="0 0 24 24" class="hicon"><path d="M12 3 L12 17 M7.5 8 H16.5 M9.5 20 L12 17 L14.5 20"/></svg>`,
+  famine:   `<svg viewBox="0 0 24 24" class="hicon"><path d="M12 20 V7 M12 7 L8.5 4 M12 7 L15.5 4 M12 12 L9 9.5 M12 12 L15 9.5 M12 16 L9.5 14 M12 16 L14.5 14"/></svg>`,
+  conquest: `<svg viewBox="0 0 24 24" class="hicon"><path d="M2 12 C7 5.5 17 5.5 22 12 C17 18.5 7 18.5 2 12 Z"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>`,
+  death:    `<svg viewBox="0 0 24 24" class="hicon"><path d="M6 3 H18 M6 21 H18 M6 3 L18 21 M18 3 L6 21"/></svg>`,
+  council:  `<svg viewBox="0 0 24 24" class="hicon"><circle cx="12" cy="12" r="8"/></svg>`,
+};
+/* The four-point compass -- Horseman's non-literal identity mark. Four
+   restrained strokes in each specialist's colour meeting at one core. */
+function sigilSvg(size){
+  return `<svg viewBox="0 0 48 48" width="${size}" height="${size}" class="sigil" aria-hidden="true">
+    <path class="sig-war" d="M24 24 L24 5"/><path class="sig-famine" d="M24 24 L41 15"/>
+    <path class="sig-conquest" d="M24 24 L41 33"/><path class="sig-death" d="M24 24 L24 43"/>
+    <circle class="sig-core" cx="24" cy="24" r="3"/></svg>`;
 }
-function card(x){return `<div class='card'><div class='role'>${esc(x.icon)} ${esc(x.name)} — ${esc(x.label)}</div><div class='simple'>${esc(x.simple)}</div><div class='dir ${cls(x.direction)}'>${statLine(x)}</div><div class='section'><b>What it checked</b><ul>${x.checked.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div><div class='section'><b>Evidence used</b><ul>${x.evidence.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div><div class='section'><b>Limits / missing data</b><ul>${x.limits.map(v=>`<li>${esc(v)}</li>`).join('')}</ul></div></div>`}
-function evidencePanel(e){if(!e)return '';const rows=(e.items||[]).map((x,i)=>`<div class='evidenceitem'><b>${esc(x.claim)}</b><div><span class='pill'>${esc(x.type)}</span><span class='pill'>Reliability: ${esc(x.reliability)} ${esc(x.reliabilityScore)}%</span><span class='pill'>${esc(x.freshness)}</span><span class='pill'>${x.confirmed?'Confirmed elsewhere':'Not independently confirmed'}</span><span class='pill'>Supports: ${esc(x.supports)}</span></div><div class='smallgrid meta'><div><b>Source</b> ${esc(x.source)}</div><div><b>Confirmation</b> ${esc(x.confirmation)}</div><div><b>Possible bias / limitation</b> ${esc(x.possibleBias)}</div><div><b>Published</b> ${esc(x.published||'Not dated')}</div></div></div>`).join('');return `<div class='evidencebox'><div class='role'>🔎 EVIDENCE ENGINE</div><p><b>${esc(e.rule)}</b></p><p>${esc(e.summary)}</p><p class='meta'>${esc(e.conflictNote)}</p><button class='toggle' onclick="document.getElementById('whybox').classList.toggle('open')">Why does Horseman believe this? ▾</button><div id='whybox' class='why'>${rows}</div></div>`}
-// Staged reveal. TIMING IS PRESENTATION ONLY: the analysis is fetched ONCE,
-// up front, and every value shown below comes from that single response.
-// Nothing is simulated, generated or interpolated on the client.
-const STEP_MS=550;
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const STAGE_PHRASES={WAR:'Reading the battlefield…',FAMINE:'Reading the world around the trade…',CONQUEST:'Reading the crowd…',DEATH:'Searching for the reason not to…'};
-const HORSEMAN_ORDER=['WAR','FAMINE','CONQUEST','DEATH'];
-function stagePlaceholder(icon,name,phrase){return `<div class='card stage'><div class='role'>${esc(icon)} ${esc(name)}</div><div class='stagephrase'><span class="spinner"></span> ${esc(phrase)}</div></div>`}
 
-async function run(){
-  let t=$('#ticker').value.trim().toUpperCase(); if(!t)return;
-  $('#go').disabled=true;
-  $('#status').innerHTML='<span class="spinner"></span> Searching market data, recent news and crowd-attention signals…';
-  $('#out').innerHTML='';
-  try{
-    // ---- ONE request. The staged sequence below never calls the API again. ----
-    const apiUrl=new URL('/api/analyse',window.location.origin);
-    apiUrl.searchParams.set('ticker',t);
-    let r=await fetch(apiUrl.href,{method:'GET',headers:{'Accept':'application/json'}});
-    let d=await r.json();
-    if(!r.ok)throw new Error(d.error||'Analysis failed');
+const state = {
+  screen:"landing", query:"", selected:null,
+  analysis:null, error:null, summonStepIndex:0, stillWorking:false,
+};
 
-    $('#status').textContent=`Live analysis completed ${new Date(d.retrievedAt).toLocaleString()} · ${d.asset.name||d.asset.ticker} · Market data source: ${d.sources.market}`;
+/* ---------- escaping (unchanged mechanism) ---------- */
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, m =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+function safe(v){ return {__safe:String(v ?? "")}; }
+function html(strings, ...vals){
+  return strings.reduce((out, s, k) => {
+    if (k === 0) return s;
+    const v = vals[k-1];
+    return out + (v && v.__safe !== undefined ? v.__safe : escapeHtml(v)) + s;
+  }, "");
+}
+function el(markup){
+  const t = document.createElement('template');
+  t.innerHTML = markup.trim();
+  return t.content.firstElementChild;
+}
 
-    $('#out').innerHTML=`<div class='grid' id='hgrid'></div><div id='councilslot'></div>`;
-    const grid=$('#hgrid');
+/**
+ * Narrow, targeted mitigation for a specific mis-encoding pattern
+ * ("×" arriving as "Ã—") observed in production. This corrects ONLY that
+ * literal sequence -- it is not a general mojibake fixer, and it changes
+ * no data, only how a handful of already-known-safe punctuation
+ * characters are displayed. The underlying root cause (an HTTP response
+ * charset not being declared) is a backend/response-header concern, not
+ * fixed here.
+ */
+function fixMojibake(s){
+  if (s == null) return s;
+  return String(s)
+    .replace(/Ã—/g, "×")
+    .replace(/â€™/g, "\u2019")
+    .replace(/â€œ/g, "\u201C")
+    .replace(/â€\u009d/g, "\u201D");
+}
 
-    // Reveal each Horseman in turn, looked up by name so the sequence does
-    // not depend on the array order the backend happens to return.
-    for(const name of HORSEMAN_ORDER){
-      const h=(d.horsemen||[]).find(x=>x&&x.name===name);
-      if(!h)continue;
-      const slot=document.createElement('div');
-      slot.innerHTML=stagePlaceholder(h.icon,h.name,STAGE_PHRASES[name]||'Working…');
-      grid.appendChild(slot);
-      await sleep(STEP_MS);
-      // Real backend result, rendered by the existing card() renderer —
-      // including its real limits/missing-data section, unmodified.
-      slot.innerHTML=card(h);
-      slot.firstElementChild.classList.add('reveal');
+// Developer panels are opt-in via the page URL. Normal users never see them,
+// and nothing is removed from the API response.
+function isDeveloperView(){
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return q.get("debug") === "1" || q.get("dev") === "1";
+  } catch (e) { return false; }
+}
+
+function prefersReducedMotion(){
+  try { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  catch (e) { return false; }
+}
+
+/**
+ * A Horseman may legitimately reach no directional view. Conquest V2
+ * reports observed behaviour without a market direction, and Death V2
+ * reports risk severity and evidence confidence rather than a direction
+ * and a conviction percentage. Neither is an error, and neither may
+ * render as "null" or be filled in with a fabricated number.
+ */
+function statLine(h){
+  const ds = h.dataSource || {};
+  if (h.name === "DEATH" && ds.engine === "v2" && ds.riskSeverity) {
+    return `Risk: ${escapeHtml(String(ds.riskSeverity).replace(/_/g, " ").toLowerCase())} — evidence ${
+      escapeHtml(String(ds.evidenceConfidence || "unknown").toLowerCase())}`;
+  }
+  if (h.name === "CONQUEST" && ds.engine === "v2") {
+    return ds.crowdSentiment && ds.crowdSentiment !== "UNKNOWN"
+      ? `Behaviour observed — crowd view ${escapeHtml(String(ds.crowdSentiment).toLowerCase())}`
+      : "Behaviour observed — no crowd view available";
+  }
+  if (h.direction === null || h.direction === undefined || h.direction === "UNKNOWN") {
+    return "No directional view reached";
+  }
+  return `${escapeHtml(h.direction)} — ${typeof h.confidence === "number"
+    ? escapeHtml(String(h.confidence)) + "%" : "confidence unavailable"}`;
+}
+function isAbstained(h){
+  return h.direction === null || h.direction === undefined || h.direction === "UNKNOWN";
+}
+
+// Every verdict the Council can reach, in plain words. WAIT and EXCEPTIONAL
+// are new under the V2 engines and must never appear as a bare, unexplained
+// word the reader has to guess at.
+const VERDICT_MEANING = {
+  REJECT: "The evidence points against this opportunity.",
+  WATCH: "The evidence is genuinely balanced. Worth watching rather than acting on.",
+  WAIT: "The case may be promising, but the evidence is not yet complete or strong enough to act on. Waiting is the safer choice.",
+  FAVOURABLE: "The evidence supports the case, with enough of it to say so.",
+  STRONG: "The evidence supports the case with high strength and agreement, and no material unresolved challenge.",
+  EXCEPTIONAL: "The evidence is unusually strong, complete, current and unchallenged.",
+};
+
+/**
+ * A supplementary VISUAL of the confidence number the Council already
+ * returned. It computes nothing new -- it draws the identical number as
+ * an arc, purely so the number reads at a glance. The text figure remains
+ * the source of truth and is always rendered alongside it.
+ */
+function confidenceArc(pct){
+  const r = 22, c = 2 * Math.PI * r;
+  const frac = Math.max(0, Math.min(100, pct)) / 100;
+  return { r, circumference: c, dash: c * frac };
+}
+
+/* ---------- chrome ---------- */
+function Topbar(dark){
+  return `<div class="topbar${dark ? " stage-topbar" : ""}">
+    <button class="brand" onclick="goHome()" aria-label="Horseman home">${sigilSvg(28)}<span class="mark">HORSEMAN</span></button>
+    <div class="tenet">The Council evaluates. You decide.</div>
+  </div>`;
+}
+function goHome(){
+  state.screen="landing"; state.selected=null; state.query="";
+  state.analysis=null; state.error=null; render();
+}
+
+function render(){
+  const app = document.getElementById('app');
+  app.innerHTML = "";
+  if (state.screen === "landing")        app.appendChild(renderLanding());
+  else if (state.screen === "summoning") app.appendChild(renderSummoning());
+  else if (state.screen === "error")     app.appendChild(renderError());
+  else                                   app.appendChild(renderResults());
+}
+
+/* =====================================================================
+   LANDING -- dark atmospheric stage, no scroll required for the primary
+   action. The interface wakes up progressively: dormant -> engaged ->
+   ready as the user interacts, purely through class toggles so nothing
+   is ever stuck invisible if motion is reduced or disabled.
+   ===================================================================== */
+/* =====================================================================
+   THE CASE LINE -- the signature scroll sequence.
+   ---------------------------------------------------------------------
+   WHY THIS EXISTS IN HORSEMAN: the product examines ONE decision from
+   four independent angles, has that case cross-examined, and only then
+   synthesises a judgment. So the visual grammar is a single vertical
+   SPINE -- the trade under examination -- that each specialist MARKS in
+   a different way. The marks persist. Nothing is a "feature card".
+
+     War      cuts angular structure ALONG the spine
+     Famine   attaches arcs entering from OUTSIDE the frame
+     Conquest accumulates many small repeated ticks (participation)
+     Death    CROSSES the spine and offsets everything already drawn
+     Council  draws the marks toward one node -- leaving the unresolved
+              strands visibly short, because evidence is never complete
+
+   Death is the only element that intersects rather than adds, because
+   Death alone cross-examines rather than investigates. The Council
+   never renders as four equal quarters, because it weighs rather than
+   counts.
+
+   All of this is driven by real, clamped scroll progress. Nothing here
+   captures wheel or touch input; native scrolling remains sovereign.
+   ===================================================================== */
+
+/** Clamp helper -- guarantees a finite 0..1 with no NaN/Infinity leak. */
+function clamp01(n){ return n < 0 ? 0 : n > 1 ? 1 : (Number.isFinite(n) ? n : 0); }
+/** Progress of `p` within the band [a,b], clamped. */
+function band(p, a, b){ return clamp01((p - a) / (b - a || 1)); }
+/** Smooth in/out so the copy never pops. */
+function pulse(p, a, b, fade){
+  const f = fade === undefined ? 0.18 : fade;
+  if (p < a || p > b) return 0;
+  return clamp01(Math.min((p - a) / f, (b - p) / f, 1));
+}
+
+/** The five acts of the journey, with their scroll bands. */
+const ACTS = [
+  { key:"open",     from:0.00, to:0.14, index:"The case",   name:"One decision.",
+    quote:"Four independent perspectives. One judgment.",
+    body:"Horseman examines a single question — does this trade currently deserve your money — from four separate angles that never see each other's conclusions.", role:"" },
+  { key:"war",      from:0.14, to:0.33, index:"Perspective I",  name:"War",
+    quote:"Read the battlefield, not the rumours.",
+    body:"War reads price and structure alone. It marks the case with what the market is actually doing — direction, extension, rhythm — and nothing it cannot see in the chart.", role:"Technical analyst" },
+  { key:"famine",   from:0.33, to:0.51, index:"Perspective II", name:"Famine",
+    quote:"Read the world, not the chart.",
+    body:"Famine looks outside the price entirely: company results, published events, the wider context. Its evidence arrives from beyond the frame — and where it cannot obtain evidence, it says so.", role:"Company, news & macro" },
+  { key:"conquest", from:0.51, to:0.67, index:"Perspective III", name:"Conquest",
+    quote:"Observe behaviour. Never assume intent.",
+    body:"Conquest measures how participants are behaving relative to this asset's own history — participation, movement, repetition. It records what happened. It does not claim to know why.", role:"Behavioural intelligence" },
+  { key:"death",    from:0.67, to:0.85, index:"The cross-examination", name:"Death",
+    quote:"Find the reason not to.",
+    body:"Death does not add a fourth opinion. It cuts across the case the others have built — testing what is assumed, what is missing, and what would have to be true. A case that survives Death is worth more than one that was never questioned.", role:"Risk & cross-examination" },
+  { key:"council",  from:0.85, to:1.00, index:"The judgment", name:"The Council",
+    quote:"Evidence is weighed, never counted.",
+    body:"The Council draws the evidence together — but strands left unresolved stay visibly short. Missing evidence is never mistaken for agreement, and an abstention is never a vote. What remains is a judgment, and the decision is still yours.", role:"Synthesis" },
+];
+
+/**
+ * The spine figure. Every mark is a real SVG path whose stroke-dashoffset
+ * is driven by scroll progress, so scrolling backwards genuinely reverses
+ * the drawing rather than replaying an animation.
+ */
+function caseFigureSvg(){
+  const marks = [];
+  // War -- angular chevrons along the spine.
+  for (let i = 0; i < 5; i++){
+    const y = 200 + i * 84;
+    const dir = i % 2 === 0 ? 1 : -1;
+    marks.push(`<path class="m-war" data-i="${i}" d="M300 ${y} L${300 + dir*66} ${y - 26} L${300 + dir*30} ${y + 30}"/>`);
+  }
+  // Famine -- arcs entering from outside the frame.
+  for (let i = 0; i < 4; i++){
+    const y = 240 + i * 96, r = 120 + i * 26, side = i % 2 === 0 ? -1 : 1;
+    marks.push(`<path class="m-famine" data-i="${i}" d="M${300 + side*r} ${y - 70} A ${r} ${r} 0 0 ${side > 0 ? 0 : 1} ${300 + side*18} ${y + 34}"/>`);
+  }
+  // Conquest -- many small repeated ticks: participation, not one voice.
+  for (let i = 0; i < 22; i++){
+    const y = 168 + i * 27, w = 10 + (i % 4) * 7, side = i % 2 === 0 ? -1 : 1;
+    marks.push(`<path class="m-conquest" data-i="${i}" d="M${300 + side*22} ${y} L${300 + side*(22 + w)} ${y}"/>`);
+  }
+  return `
+  <svg viewBox="0 0 600 900" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+    <g class="fig-shift">
+      <path class="m-spine" d="M300 70 L300 830"/>
+      <g class="g-war">${marks.filter(m => m.includes('m-war')).join("")}</g>
+      <g class="g-famine">${marks.filter(m => m.includes('m-famine')).join("")}</g>
+      <g class="g-conquest">${marks.filter(m => m.includes('m-conquest')).join("")}</g>
+    </g>
+    <g class="g-death">
+      <path class="m-death" d="M90 700 L510 210"/>
+      <circle class="m-death-node" cx="300" cy="455" r="0"/>
+    </g>
+    <g class="g-council">
+      <circle class="m-council-ring" cx="300" cy="455" r="118"/>
+      <circle class="m-council-core" cx="300" cy="455" r="0"/>
+      <path class="m-conv c1" d="M300 130 L300 455"/>
+      <path class="m-conv c2" d="M470 300 L300 455"/>
+      <path class="m-conv c3" d="M140 340 L300 455"/>
+      <path class="m-conv c4 unresolved" d="M300 800 L300 455"/>
+    </g>
+  </svg>`;
+}
+
+/**
+ * Applies scroll progress (0..1) to the figure. Pure transform/opacity/
+ * stroke-dashoffset work -- no layout reads, no thrashing.
+ */
+function applyCaseProgress(root, p){
+  const q = sel => root.querySelector(sel);
+  const all = sel => root.querySelectorAll(sel);
+  const setDraw = (nodeList, prog, stagger) => {
+    const n = nodeList.length;
+    nodeList.forEach((el, i) => {
+      const st = stagger ? (i / (n || 1)) * 0.55 : 0;
+      const local = clamp01((prog - st) / (1 - st || 1));
+      const len = el.getTotalLength ? (el._len || (el._len = el.getTotalLength())) : 100;
+      el.style.strokeDasharray = len;
+      el.style.strokeDashoffset = len * (1 - local);
+      el.style.opacity = local > 0 ? 1 : 0;
+    });
+  };
+
+  // Spine draws first and stays for the whole journey.
+  setDraw(all('.m-spine'), band(p, 0.02, 0.13), false);
+  setDraw(all('.m-war'), band(p, 0.15, 0.31), true);
+  setDraw(all('.m-famine'), band(p, 0.34, 0.50), true);
+  setDraw(all('.m-conquest'), band(p, 0.52, 0.66), true);
+
+  // DEATH -- crosses the case, and physically offsets everything already
+  // drawn. This is the rhythm break: the composition is disturbed, not
+  // decorated.
+  const dp = band(p, 0.68, 0.83);
+  setDraw(all('.m-death'), dp, false);
+  const shift = q('.fig-shift');
+  if (shift){
+    const settle = band(p, 0.86, 0.97);            // Council re-settles it
+    const off = dp * 26 * (1 - settle);
+    shift.style.transform = `translate(${off * 0.55}px, ${-off * 0.2}px) rotate(${off * 0.05}deg)`;
+    shift.style.opacity = String(1 - dp * 0.35 * (1 - settle));
+  }
+  const dnode = q('.m-death-node');
+  if (dnode) dnode.setAttribute('r', String(dp * 7));
+
+  // COUNCIL -- convergence. Three strands reach the core; the fourth is
+  // deliberately held short, because the evidence was never complete.
+  const cp = band(p, 0.86, 1.00);
+  ['.m-conv.c1','.m-conv.c2','.m-conv.c3'].forEach(s => setDraw(all(s), cp, false));
+  setDraw(all('.m-conv.c4'), cp * 0.42, false);   // stays visibly unresolved
+  setDraw(all('.m-council-ring'), band(p, 0.88, 1.00), false);
+  const core = q('.m-council-core');
+  if (core) core.setAttribute('r', String(cp * 9));
+}
+
+function renderLanding(){
+  const wrap = el(`<div>
+    <div class="stage" id="hero-stage">
+      <div class="hero-bg-sigil">${sigilSvg(420)}</div>
+      ${Topbar(true)}
+      <main id="hero-main"></main>
+      <div class="scroll-cue" id="scroll-cue" aria-hidden="true"><span>The case</span><span class="line"></span></div>
+    </div>
+
+    <section class="journey" id="journey" aria-label="How Horseman reaches a judgment">
+      <div class="journey-track" id="journey-track">
+        <div class="journey-pin">
+          <div class="journey-wash" id="journey-wash"></div>
+          <div class="case-stage">
+            <div class="case-figure" id="case-figure">${caseFigureSvg()}</div>
+            <div class="case-copy" id="case-copy"></div>
+          </div>
+          <div class="journey-rail" id="journey-rail" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="closing-inner">
+        <div class="seq"><span>The Horsemen investigate</span><span>The Council judges</span><span>You decide</span></div>
+        <h2>Not every trade deserves your money.</h2>
+        <p class="kicker">The Council evaluates. You decide.</p>
+        <button class="back-to-top" id="back-to-top">Summon the Horsemen</button>
+      </div>
+    </section>
+
+    <footer class="legal">
+      Horseman analyses currently available evidence to help you weigh a trade.
+      It does not predict the future or guarantee a profitable outcome, and
+      confidence reflects the strength and agreement of evidence — not a
+      probability of profit.
+    </footer>
+  </div>`);
+
+  const main = wrap.querySelector('#hero-main');
+  const q0 = state.query.trim().toLowerCase();
+  const matches = q0 ? SECURITIES.filter(s =>
+      s.name.toLowerCase().includes(q0) || s.ticker.toLowerCase().includes(q0)).slice(0,6) : [];
+
+  main.appendChild(el(html`
+    <div class="landing-viewport">
+      <div class="landing-hero">
+        <p class="wordmark">HORSEMAN</p>
+        <h1>The Council evaluates.</h1>
+        <div class="wordmark-rule" id="wordmark-rule"></div>
+        <p class="tenet-large">You decide.</p>
+        <div class="search-wrap">
+          <div class="search-field" id="search-field">
+            <div class="search-ticks" id="search-ticks">
+              <span class="t-war"></span><span class="t-famine"></span><span class="t-conquest"></span><span class="t-death"></span>
+            </div>
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <label class="sr-only" for="search-input">Search a company or ticker</label>
+            <input id="search-input" type="text" autocomplete="off"
+                   placeholder="Search a company or ticker (US equities)" value="${state.query}" />
+          </div>
+          <div class="autocomplete" id="autocomplete" role="listbox"></div>
+          ${safe(state.selected ? `<div class="selected-pill">${escapeHtml(state.selected.name)} · ${escapeHtml(state.selected.ticker)}
+            <button aria-label="Clear selection" id="clear-selected">✕</button></div>` : "")}
+          <div><button class="summon-btn${state.selected ? " armed" : ""}" id="summon-btn" ${safe(state.selected ? "" : "disabled")}>
+            <span>Summon the Horsemen</span><span class="dots"><span></span><span></span><span></span><span></span></span>
+          </button></div>
+        </div>
+      </div>
+    </div>`));
+
+  /* ---- act copy panels (real semantic text, always in the DOM) ---- */
+  const copy = wrap.querySelector('#case-copy');
+  ACTS.forEach(a => {
+    copy.appendChild(el(html`
+      <div class="act-panel" data-act="${a.key}">
+        <div class="act-index"><span class="rule"></span>${a.index}</div>
+        <h2 class="act-name ${safe(a.key)}">${a.name}</h2>
+        <p class="act-quote">${a.quote}</p>
+        <p class="act-body">${a.body}</p>
+        ${safe(a.role ? `<div class="act-role">${escapeHtml(a.role)}</div>` : "")}
+      </div>`));
+  });
+  const rail = wrap.querySelector('#journey-rail');
+  ACTS.forEach(a => rail.appendChild(el(`<div class="rail-node ${a.key}"></div>`)));
+
+  /* ---- search wiring (unchanged product behaviour) ---- */
+  const ac = main.querySelector('#autocomplete');
+  const renderMatches = list => {
+    ac.innerHTML = "";
+    list.forEach(m => {
+      const row = el(html`<button role="option" type="button"><strong>${m.name}</strong> <span class="ticker">${m.ticker}</span></button>`);
+      row.onclick = () => { state.selected = m; state.query = m.name; render(); };
+      ac.appendChild(row);
+    });
+  };
+  renderMatches(matches);
+
+  const input = main.querySelector('#search-input');
+  const field = main.querySelector('#search-field');
+  const ticks = main.querySelector('#search-ticks');
+  const btn = main.querySelector('#summon-btn');
+  if (state.selected) ticks.classList.add('ready');
+  input.addEventListener('focus', () => field.classList.add('engaged'));
+  input.addEventListener('blur', () => field.classList.remove('engaged'));
+  input.oninput = e => {
+    state.query = e.target.value;
+    const raw = state.query.trim().toUpperCase();
+    const known = SECURITIES.find(s => s.ticker === raw);
+    state.selected = known || (/^[A-Z0-9.\-]{1,10}$/.test(raw) ? {name:raw, ticker:raw} : null);
+    ticks.classList.toggle('ready', !!state.selected);
+    if (btn){ btn.disabled = !state.selected; btn.classList.toggle('armed', !!state.selected); }
+    const q2 = state.query.trim().toLowerCase();
+    renderMatches(q2 ? SECURITIES.filter(s => s.name.toLowerCase().includes(q2) || s.ticker.toLowerCase().includes(q2)).slice(0,6) : []);
+  };
+  input.onkeydown = e => { if (e.key === "Enter" && state.selected) beginSummon(); };
+  if (btn) btn.onclick = beginSummon;
+  const clearBtn = main.querySelector('#clear-selected');
+  if (clearBtn) clearBtn.onclick = () => { state.selected = null; render(); };
+  const toTop = wrap.querySelector('#back-to-top');
+  if (toTop) toTop.onclick = () => {
+    try { window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }
+    catch (err) { window.scrollTo(0, 0); }
+    setTimeout(() => { const i = document.getElementById('search-input'); if (i) i.focus(); }, 320);
+  };
+  input.focus();
+
+  requestAnimationFrame(() => { const r = main.querySelector('#wordmark-rule'); if (r) r.classList.add('drawn'); });
+  initScrollScene(wrap);
+  return wrap;
+}
+
+/**
+ * The scroll engine. ONE listener, rAF-coalesced, passive, and removed on
+ * teardown. Reads a single getBoundingClientRect per frame -- no layout
+ * thrashing, no per-element listeners, no perpetual loop.
+ */
+function initScrollScene(root){
+  const track = root.querySelector('#journey-track');
+  const figure = root.querySelector('#case-figure');
+  const wash = root.querySelector('#journey-wash');
+  const cue = root.querySelector('#scroll-cue');
+  const panels = Array.prototype.slice.call(root.querySelectorAll('.act-panel'));
+  const railNodes = Array.prototype.slice.call(root.querySelectorAll('.rail-node'));
+  if (!track || !figure) return;
+
+  // Reduced motion: resolve to the FINAL composed state and show all copy.
+  // No listener is attached at all, so there is zero scroll work.
+  if (prefersReducedMotion()){
+    applyCaseProgress(figure, 1);
+    panels.forEach(p => { p.style.opacity = 1; p.style.position = 'relative'; p.style.transform = 'none';
+      p.style.marginBottom = '28px'; p.classList.add('on'); });
+    const copy = root.querySelector('#case-copy');
+    if (copy) copy.style.height = 'auto';
+    const stage = root.querySelector('.case-stage');
+    if (stage) stage.style.height = 'auto';
+    const pin = root.querySelector('.journey-pin');
+    if (pin){ pin.style.position = 'static'; pin.style.height = 'auto'; pin.style.padding = '60px 0'; }
+    track.style.height = 'auto';
+    railNodes.forEach(n => n.classList.add('lit'));
+    if (cue) cue.style.display = 'none';
+    return;
+  }
+
+  let ticking = false;
+  const onFrame = () => {
+    ticking = false;
+    const rect = track.getBoundingClientRect();
+    const total = rect.height - window.innerHeight;
+    const p = clamp01(total > 0 ? (-rect.top) / total : 0);
+
+    applyCaseProgress(figure, p);
+
+    // Copy panels cross-fade with the acts they belong to.
+    panels.forEach((panel, i) => {
+      const a = ACTS[i];
+      const o = pulse(p, a.from - 0.03, a.to + 0.03);
+      panel.style.opacity = o;
+      panel.style.transform = `translateY(calc(-50% + ${(1 - o) * 16}px))`;
+      panel.classList.toggle('on', o > 0.55);
+    });
+
+    // Rail marks how far through the case the reader is.
+    railNodes.forEach((n, i) => n.classList.toggle('lit', p >= ACTS[i].from - 0.02));
+
+    // The environment darkens through the cross-examination and lifts
+    // toward gold as the Council settles -- background as narrative.
+    if (wash){
+      const d = band(p, 0.66, 0.84), c = band(p, 0.86, 1);
+      wash.style.background =
+        `radial-gradient(ellipse 720px 420px at 50% 46%, rgba(169,134,63,${0.03 + c * 0.13}), transparent 62%),` +
+        `linear-gradient(180deg, rgba(20,18,15,${d * 0.5}) 0%, rgba(14,12,10,${d * 0.7}) 100%)`;
     }
+    if (cue) cue.style.opacity = String(1 - clamp01(p * 6));
+  };
+  const onScroll = () => { if (!ticking){ ticking = true; requestAnimationFrame(onFrame); } };
 
-    // ---- The Council, last and with more emphasis ----
-    const councilSlot=$('#councilslot');
-    councilSlot.innerHTML=`<div class='councilstage'><div class='role'>🏛️ THE COUNCIL</div><div class='stagephrase'><span class="spinner"></span> Weighing the evidence…</div></div>`;
-    await sleep(STEP_MS);
-
-    let news=d.sources.newsItems?.length?`<div class='section links'><b>Recent sources checked</b><ul>${d.sources.newsItems.map(n=>`<li><a target='_blank' rel='noopener' href='${esc(n.url)}'>${esc(n.title)}</a> <span class='meta'>(${esc(n.source)})</span></li>`).join('')}</ul></div>`:'';
-    councilSlot.innerHTML=councilBlock(d,news);
-    councilSlot.firstElementChild.classList.add('reveal');
-  }catch(e){
-    // Honest failure: the sequence stops and nothing is shown in its place.
-    $('#out').innerHTML='';
-    $('#status').textContent='Could not complete the live search: '+e.message;
-  }finally{$('#go').disabled=false}
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll, { passive: true });
+  // Teardown when this landing view is replaced, so listeners never stack
+  // up across renders.
+  if (typeof MutationObserver !== 'undefined'){
+    const app = document.getElementById('app');
+    const mo = new MutationObserver(() => {
+      if (!document.body.contains(track)){
+        window.removeEventListener('scroll', onScroll);
+        window.removeEventListener('resize', onScroll);
+        mo.disconnect();
+      }
+    });
+    if (app) mo.observe(app, { childList: true });
+  }
+  onFrame();
 }
-$('#go').onclick=run; $('#ticker').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
-</script></body></html>
+
+/* =====================================================================
+   SUMMONING -- a constellation of five nodes on the dark stage. The
+   Horsemen investigate conceptually in parallel; this sequence stages
+   that visually and never gates or serialises the real request.
+   ===================================================================== */
+function renderSummoning(){
+  const wrap = el(`<div class="stage">${Topbar(true)}<main></main></div>`);
+  const main = wrap.querySelector('main');
+  main.appendChild(el(html`
+    <div class="summon-screen">
+      <div class="summon-target-wrap">
+        <div class="summon-target-label">Summoning for</div>
+        <div class="summon-target">${state.selected.name} (${state.selected.ticker})</div>
+      </div>
+      <div class="constellation">
+        ${safe(SUMMON_STEPS.map((s,i)=>{
+          const cls = i < state.summonStepIndex ? "done" : (i === state.summonStepIndex ? "active" : "");
+          const connector = i > 0 ? `<div class="connector${i <= state.summonStepIndex ? " filled" : ""}"></div>` : "";
+          return `${connector}<div class="node-wrap ${s.key} ${cls}">
+            <div class="node">${ICONS[s.key]}</div>
+            <div class="node-label">
+              <div class="node-name">${escapeHtml(s.name)}</div>
+              <div class="node-msg">${escapeHtml(s.msg)}</div>
+            </div></div>`;
+        }).join(""))}
+      </div>
+      ${safe(state.stillWorking ? `<p class="summon-note">Still gathering evidence from the market…</p>` : "")}
+    </div>`));
+  return wrap;
+}
+
+/* =====================================================================
+   THE ONLY NETWORK CALL. One request per summon.
+   ===================================================================== */
+function beginSummon(){
+  if (!state.selected) return;
+  state.screen = "summoning"; state.summonStepIndex = 0;
+  state.stillWorking = false; state.analysis = null; state.error = null;
+  render();
+
+  const url = new URL('/api/analyse', window.location.origin);
+  url.searchParams.set('ticker', state.selected.ticker);
+  // Activate the V2 engines explicitly for the user-facing view. The API's
+  // own defaults are deliberately unchanged, so every other caller keeps
+  // the behaviour it has today; this request opts in, it does not flip a
+  // global. Expect V2 to read more conservatively than the legacy path:
+  // Conquest abstains without a direct crowd source, Death reports risk
+  // severity rather than a direction, and the Council's confidence reflects
+  // that missing evidence. That is the intended behaviour, not a regression.
+  url.searchParams.set('warEngine', 'v2');
+  url.searchParams.set('famineEngine', 'v2');
+  url.searchParams.set('conquestEngine', 'v2');
+  url.searchParams.set('deathEngine', 'v2');
+  url.searchParams.set('councilEngine', 'v2');
+
+  const request = fetch(url.href, {method:'GET', headers:{'Accept':'application/json'}})
+    .then(async r => {
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ('Analysis failed (HTTP ' + r.status + ')'));
+      return d;
+    });
+
+  const animation = new Promise(resolve => {
+    (function step(){
+      render();
+      if (state.summonStepIndex < SUMMON_STEPS.length - 1){
+        setTimeout(() => { state.summonStepIndex++; step(); }, STEP_DELAY);
+      } else {
+        setTimeout(resolve, STEP_DELAY);
+      }
+    })();
+  });
+
+  // Results appear only when the real response has arrived. If the request
+  // outlasts the sequence we wait and say so -- never show a result that
+  // has not been returned by the backend.
+  animation.then(() => { if (!state.analysis && !state.error){ state.stillWorking = true; render(); } });
+
+  Promise.all([request, animation])
+    .then(([data]) => { state.analysis = data; state.screen = "results"; render(); })
+    .catch(err => {
+      state.error = err && err.message ? err.message : String(err);
+      state.screen = "error"; render();
+    });
+}
+
+/* ---------- honest failure ---------- */
+function renderError(){
+  const wrap = el(`<div>${Topbar(false)}<main></main></div>`);
+  wrap.querySelector('main').appendChild(el(html`
+    <div class="error-block">
+      <h3>The Horsemen could not ride.</h3>
+      <p>Horseman could not complete a live analysis for
+         <strong>${state.selected ? state.selected.ticker : "this security"}</strong>.
+         No verdict is shown, because no verdict was reached.</p>
+      <p>Nothing here is estimated or simulated -- if the evidence cannot be
+         gathered, Horseman says so rather than guessing.</p>
+      <div class="error-code">${fixMojibake(state.error)}</div>
+      <button class="new-search" id="err-back">Start a new search</button>
+    </div>`));
+  wrap.querySelector('#err-back').onclick = goHome;
+  return wrap;
+}
+
+/* =====================================================================
+   RESULTS -- 100% backend data
+   ===================================================================== */
+function findHorseman(name){
+  return (state.analysis.horsemen || []).find(h => h && h.name === name) || null;
+}
+
+/**
+ * Council explanation policy (normal mode): never show the raw
+ * math-flavoured reasons/verdictReasons array, and never show
+ * vote-counting language ("War: BULLISH; Famine: ..."). The plain-English
+ * explanation is built ONLY from already-approved, already-deterministic
+ * fields: the canonical verdict meaning, the legacy synopsis when present
+ * (itself vote-free), the V2 coverage line, and "what would change the
+ * Council's mind" (also vote-free). No new narrative is synthesised.
+ */
+function councilExplanation(council){
+  const parts = [];
+  if (council.verdict && VERDICT_MEANING[council.verdict]) parts.push(VERDICT_MEANING[council.verdict]);
+  if (council.synopsis) parts.push(council.synopsis);
+  return parts;
+}
+
+function agreementBlock(council){
+  const coverage = council.coverage;
+  if (!coverage) return "";
+  const participating = coverage.participating || [];
+  const abstained = coverage.abstained || [];
+  return html`
+    <div class="agreement-block">
+      <div class="col"><div class="label">Reached a view</div>
+        <div class="names">${safe(participating.length ? escapeHtml(participating.join(", ")) : "None")}</div></div>
+      <div class="col"><div class="label">Reached no view</div>
+        <div class="names">${safe(abstained.length ? escapeHtml(abstained.join(", ")) : "None")}
+          ${safe(abstained.length ? `<span class="abstain-note">An abstention is not agreement.</span>` : "")}</div></div>
+    </div>`;
+}
+
+/** Displays the severity Death already computed. Computes nothing new. */
+function isNoneObserved(severity){ return severity === "NONE_OBSERVED"; }
+
+function deathCard(death){
+  if (!death) return "";
+  const ds = death.dataSource;
+  const isV2 = ds && ds.engine === "v2";
+  const statement = isV2 ? (ds.strongestChallenge && ds.strongestChallenge.statement) : (death.evidence || [])[0];
+  const isRisk = isV2 ? (ds.riskSeverity && !isNoneObserved(ds.riskSeverity)) : false;
+  const noneObserved = isV2 ? isNoneObserved(ds.riskSeverity) : null;
+  return html`
+    <div class="death-card">
+      <div class="death-eyebrow">${ICONS.death}<span>Death's Challenge</span> <span class="sub">The strongest reason to pause</span></div>
+      ${safe(isV2 ? `<span class="death-badge ${isRisk ? "risk" : "none"}">${
+        isRisk ? escapeHtml(String(ds.riskSeverity).replace(/_/g," ").toLowerCase()) + " risk observed"
+               : "no major risk observed"}</span>` : "")}
+      <p class="death-statement">${fixMojibake(statement) || "Death did not report a finding for this run."}</p>
+      ${safe(noneObserved ? `<p class="death-clarify">This does not mean the trade is safe — it means no major
+        risk was found in the evidence Death could assess.</p>` : "")}
+    </div>`;
+}
+
+function horsemanCard(h){
+  if (!h) return "";
+  const key = HORSEMAN_KEY[h.name] || "war";
+  const role = HORSEMAN_ROLE[h.name] || "";
+  const findings = (h.evidence || []).map(fixMojibake);
+  const limits = (h.limits || []).map(fixMojibake);
+  const shown = findings.slice(0, 4);
+  const rest = findings.slice(4);
+  const abstained = isAbstained(h);
+  return html`
+    <div class="horseman-report ${safe(key)}">
+      <div class="hr-head">
+        ${safe(ICONS[key].replace('class="hicon"', `class="hicon ${key}"`))}
+        <div class="hr-title-block">
+          <div class="hr-name-row"><h4 class="${safe(key)}">${h.name}</h4><span class="hr-role">${role}</span></div>
+          <div class="hr-stat ${safe(abstained ? "abstained" : "")}">${statLine(h)}</div>
+        </div>
+      </div>
+      <div class="hr-body">
+        <ul class="hr-findings">${safe(shown.map(e => `<li>${escapeHtml(e)}</li>`).join(""))}</ul>
+        ${safe(limits.length ? `<p class="hr-limit-summary">${escapeHtml(limits[0])}${
+          limits.length > 1 ? ` (+${limits.length - 1} more)` : ""}</p>` : "")}
+        ${safe((rest.length || limits.length > 1) ? `
+          <button class="hr-toggle" type="button" aria-expanded="false">
+            <span class="chev">⌄</span><span>View evidence</span>
+          </button>
+          <div class="hr-more">
+            ${rest.length ? `<ul class="hr-findings">${rest.map(e => `<li>${escapeHtml(e)}</li>`).join("")}</ul>` : ""}
+            ${limits.length > 1 ? `<p class="hr-limit-summary" style="margin-bottom:0"><strong>Limits / missing data</strong></p>
+              <ul class="hr-more-limits">${limits.slice(1).map(l => `<li>${escapeHtml(l)}</li>`).join("")}</ul>` : ""}
+          </div>` : "")}
+      </div>
+    </div>`;
+}
+
+function warProvenance(){
+  const w = findHorseman("WAR");
+  const ds = w && w.dataSource;
+  if (!ds || !isDeveloperView()) return "";
+  const rows = [
+    ["Engine", ds.engine], ["Provider", ds.provider], ["Simulated", String(ds.simulated)],
+    ["Data status", ds.dataStatus], ["Candles used", ds.candlesUsed],
+    ["Latest datapoint", ds.latestDataTimestamp], ["Latest bar provisional", String(ds.latestBarIsProvisional)],
+    ["Calculation version", ds.calculationVersion],
+  ].filter(r => r[1] !== undefined && r[1] !== null);
+  if (ds.fallbackFrom) rows.push(["Fell back from", ds.fallbackFrom], ["Fallback reason", ds.fallbackReason]);
+  const isFallback = ds.provider === "yahoo-fallback";
+  const badge = ds.dataStatus === "DATA_UNAVAILABLE"
+    ? `<span class="live-badge fallback-badge">Data unavailable</span>`
+    : `<span class="live-badge${isFallback ? " fallback-badge" : ""}">${isFallback ? "Fallback data" : "Live data"}</span>`;
+  return html`
+    <div class="debug-panel">
+      <div class="debug-title">War — market-data provenance ${safe(badge)}<span class="debug-tag">developer view</span></div>
+      ${safe(rows.map(([k,v]) => `<div class="debug-row"><span class="debug-label">${escapeHtml(k)}</span>
+         <span class="debug-value">${escapeHtml(v)}</span></div>`).join(""))}
+    </div>`;
+}
+
+/**
+ * The raw math-flavoured reasons the Council computed, shown ONLY in
+ * developer mode. Normal customers see councilExplanation() instead.
+ */
+function councilDebugReasons(council){
+  if (!isDeveloperView()) return "";
+  const reasons = council.reasons || council.verdictReasons || [];
+  if (!reasons.length) return "";
+  return html`
+    <div class="debug-panel">
+      <div class="debug-title">Council — raw reasons <span class="debug-tag">developer view</span></div>
+      <div class="debug-raw"><ul>${safe(reasons.map(r => `<li>${escapeHtml(r)}</li>`).join(""))}</ul></div>
+    </div>`;
+}
+
+function deepEvidencePanel(){
+  const e = state.analysis.evidenceEngine;
+  const src = state.analysis.sources || {};
+  const news = (src.newsItems || []).slice(0,6);
+  const items = (e && e.items) || [];
+  if (!items.length && !news.length && !(e && (e.rule || e.summary))) return "";
+  return html`
+    <button class="deep-toggle" id="deep-toggle" type="button">
+      <span>View detailed evidence &amp; sources</span><span class="chev">⌄</span>
+    </button>
+    <div class="deep-panel" id="deep-panel">
+      ${safe(e && e.rule ? `<p class="deep-meta"><strong>${escapeHtml(e.rule)}</strong></p>` : "")}
+      ${safe(e && e.summary ? `<p class="deep-meta">${escapeHtml(e.summary)}</p>` : "")}
+      ${safe(items.map(x => `
+        <div class="deep-item">
+          <div class="deep-top">
+            <span class="deep-source">${escapeHtml(x.source)}</span>
+            <span class="deep-badge">${escapeHtml(x.type)}</span>
+            <span class="deep-badge">Supports: ${escapeHtml(x.supports)}</span>
+          </div>
+          <p class="deep-summary">${escapeHtml(fixMojibake(x.claim))}</p>
+          <div class="deep-meta">Reliability: ${escapeHtml(x.reliability)} ${escapeHtml(x.reliabilityScore)}% ·
+            ${x.confirmed ? "Confirmed elsewhere" : "Not independently confirmed"}</div>
+        </div>`).join(""))}
+      ${safe(news.length ? `<div class="deep-item"><div class="deep-top"><span class="deep-source">Recent sources checked</span></div>
+        <ul class="news-list">${news.map(n =>
+          `<li><a target="_blank" rel="noopener" href="${escapeHtml(n.url)}">${escapeHtml(n.title)}</a>
+           <span class="deep-meta">(${escapeHtml(n.source)})</span></li>`).join("")}</ul></div>` : "")}
+    </div>`;
+}
+
+function renderResults(){
+  const d = state.analysis;
+  const council = d.council || {};
+  const war = findHorseman("WAR"), famine = findHorseman("FAMINE"),
+        conquest = findHorseman("CONQUEST"), death = findHorseman("DEATH");
+  const src = d.sources || {};
+  const explanation = councilExplanation(council);
+  const changeMind = council.changeMind || council.whatWouldChangeMind || [];
+  const arc = typeof council.confidence === "number" ? confidenceArc(council.confidence) : null;
+
+  const wrap = el(`<div>${Topbar(false)}<main></main></div>`);
+  const main = wrap.querySelector('main');
+
+  main.appendChild(el(html`
+    <div class="results-wrap">
+      <div class="ticker-line">Analysis for
+        <strong>${(d.asset && d.asset.name) || state.selected.name} (${(d.asset && d.asset.ticker) || state.selected.ticker})</strong>
+        ${d.retrievedAt ? `· live analysis completed ${new Date(d.retrievedAt).toLocaleString()}` : ""}
+        ${src.market ? `· market data: ${escapeHtml(src.market)}` : ""}</div>
+
+      <div class="verdict-card">
+        <div class="verdict-inner">
+        <div class="verdict-eyebrow">${council.verdict ? "The Council Has Decided" : "The Council Reached No Verdict"}</div>
+        <div class="verdict-word">${council.verdict || "NO VERDICT"}</div>
+        ${safe(arc ? `
+          <div class="confidence-row">
+            <div class="conf-ring-wrap" aria-hidden="true">
+              <svg viewBox="0 0 52 52"><circle class="conf-ring-bg" cx="26" cy="26" r="${arc.r}"/>
+                <circle class="conf-ring-fill" cx="26" cy="26" r="${arc.r}"
+                  style="stroke-dasharray:${arc.circumference};stroke-dashoffset:${arc.circumference - arc.dash}"/></svg>
+              <div class="conf-ring-num">${escapeHtml(council.confidence)}%</div>
+            </div>
+            <div class="verdict-confidence"><strong>${escapeHtml(council.confidence)}% confidence</strong><br>in this assessment</div>
+          </div>` : `<div class="verdict-confidence" style="text-align:center;margin:0 auto 18px;">no confidence figure, because no verdict was reached</div>`)}
+        ${safe(explanation.length ? explanation.map((p,i) =>
+          `<p class="verdict-explain">${i===0 ? `<strong>${escapeHtml(p)}</strong>` : escapeHtml(p)}</p>`).join("") : "")}
+        ${safe(!council.verdict ? `<p class="verdict-explain">The Council did not reach a verdict, so none is shown.
+          This is not a neutral result and must not be read as one.</p>
+          ${(council.missingDependencies || []).length ? `<p class="confidence-note">Evidence the Council still needs: ${
+            escapeHtml(council.missingDependencies.join(", "))}</p>` : ""}` : "")}
+        <p class="confidence-note">Confidence reflects the strength, quality and agreement of evidence the Council
+          currently has — not a probability that this trade will be profitable.</p>
+        </div>
+      </div>
+
+      ${safe(deathCard(death))}
+      ${safe(agreementBlock(council))}
+      ${safe(changeMind.length ? `<div class="change-mind"><div class="label">What would change the Council's mind</div>
+        <ul>${changeMind.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul></div>` : "")}
+
+      <div class="section-title">Horseman Evidence</div>
+      ${safe(horsemanCard(war))}
+      ${safe(horsemanCard(famine))}
+      ${safe(horsemanCard(conquest))}
+
+      ${safe(deepEvidencePanel())}
+      ${safe(warProvenance())}
+      ${safe(councilDebugReasons(council))}
+      <button class="new-search" id="new-search-btn">Start a new search</button>
+    </div>`));
+
+  // Per-Horseman "View evidence" toggles.
+  main.querySelectorAll('.hr-toggle').forEach(btn => {
+    btn.onclick = () => {
+      const open = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', String(!open));
+      btn.nextElementSibling.classList.toggle('open');
+      btn.querySelector('span:last-child').textContent = open ? 'View evidence' : 'Hide evidence';
+    };
+  });
+  const deepToggle = main.querySelector('#deep-toggle');
+  if (deepToggle) deepToggle.onclick = () => {
+    deepToggle.classList.toggle('open');
+    main.querySelector('#deep-panel').classList.toggle('open');
+  };
+  main.querySelector('#new-search-btn').onclick = goHome;
+  return wrap;
+}
+
+render();
+</script>
+</body></html>
